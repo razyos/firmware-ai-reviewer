@@ -123,7 +123,24 @@ def _generate(
         config=types.GenerateContentConfig(**config_kwargs),
         contents=user,
     )
-    return response.text
+
+    # Warn if the model stopped because of the token budget — the JSON may be
+    # truncated and callers will see fewer findings than actually exist.
+    candidate = response.candidates[0] if response.candidates else None
+    if candidate and candidate.finish_reason.name == "MAX_TOKENS":
+        print(
+            f"  [warn] response truncated at max_tokens={max_tokens}; findings may be incomplete",
+            file=sys.stderr,
+        )
+
+    # response.text raises ValueError when the response was blocked by safety
+    # filters and contains no text payload.  Return None so callers can fall back.
+    try:
+        return response.text
+    except ValueError:
+        reason = candidate.finish_reason.name if candidate else "UNKNOWN"
+        print(f"  [warn] generation blocked (finish_reason={reason})", file=sys.stderr)
+        return None
 
 
 def route(client: genai.Client, code: str) -> list[str]:
@@ -160,11 +177,17 @@ def expert_review(client: genai.Client, expert_file: str, code: str) -> list[dic
         return []
 
 
-def _build_context(path: Path) -> str:
+def _build_context(path: Path) -> tuple[str, list[str]]:
     """Assemble source file plus any local headers it includes.
 
-    Scans for #include "..." directives (quoted = local, not system headers)
-    and prepends each found header as a labelled block before the source.
+    Returns (context_string, resolved_header_names) so callers don't need to
+    re-read the file or re-run the regex.
+
+    Security: header paths are validated to remain within the source file's
+    directory — prevents path traversal via crafted #include directives.
+
+    Block comments are stripped before scanning for #include directives so that
+    commented-out headers (e.g. inside /* ... */ blocks) are not injected.
 
     Line numbers in findings must be relative to the SOURCE FILE (line 1 = first
     line of the .c file).  A sentinel comment tells the model exactly where the
@@ -172,30 +195,40 @@ def _build_context(path: Path) -> str:
     prepended.
     """
     source = path.read_text(encoding="utf-8")
-    header_dir = path.parent
+    header_dir = path.parent.resolve()
 
-    local_includes = re.findall(r'(?m)^[ \t]*#include\s+"([^"]+)"', source)
+    # Strip C block comments before scanning includes to avoid picking up
+    # commented-out headers.  Line comments (//) are already handled by the
+    # anchored regex below.
+    source_no_block_comments = re.sub(r'/\*.*?\*/', '', source, flags=re.DOTALL)
+    local_includes = re.findall(r'(?m)^[ \t]*#include\s+"([^"]+)"', source_no_block_comments)
 
     header_blocks: list[str] = []
+    resolved_names: list[str] = []
     for name in local_includes:
-        header_path = header_dir / name
+        header_path = (path.parent / name).resolve()
+        # Security: reject any path that escapes the source file's directory.
+        if not header_path.is_relative_to(header_dir):
+            print(f"  [warn] skipping out-of-bounds include: {name}", file=sys.stderr)
+            continue
         if header_path.exists():
             header_blocks.append(
                 f"// ===== {name} =====\n{header_path.read_text(encoding='utf-8')}"
             )
+            resolved_names.append(name)
 
     if header_blocks:
         header_text = "\n\n".join(header_blocks)
         sentinel = (
             f"// ===== {path.name} — REPORT ALL line_number VALUES RELATIVE TO THIS FILE (line 1 = first line below) =====\n"
         )
-        return header_text + f"\n\n{sentinel}{source}"
-    return source
+        return header_text + f"\n\n{sentinel}{source}", resolved_names
+    return source, resolved_names
 
 
 def review_file(client: genai.Client, path: Path, verbose: bool = False) -> dict:
     """Full review pipeline for one C file."""
-    context = _build_context(path)
+    context, headers = _build_context(path)
 
     # Phase 1: Route
     domains = route(client, context)
@@ -225,9 +258,6 @@ def review_file(client: genai.Client, path: Path, verbose: bool = False) -> dict
             seen.add(key)
             unique.append(finding)
 
-    source_text = path.read_text(encoding="utf-8")
-    headers = [h for h in re.findall(r'(?m)^[ \t]*#include\s+"([^"]+)"', source_text)
-               if (path.parent / h).exists()]
     return {"file": str(path), "headers": headers, "domains": domains, "findings": unique}
 
 
