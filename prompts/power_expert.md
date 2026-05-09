@@ -48,8 +48,9 @@ RULE SAF-001: Watchdog must be fed (WatchdogIntClear or WatchdogReloadGet/Set) f
   task or a dedicated watchdog task. Feeding from an ISR defeats the watchdog's purpose:
   a deadlocked task will still feed the watchdog via the ISR.
 
-RULE SAF-002: Every hardware polling loop (waiting for I2C ACK, SPI busy, UART TXFE)
+RULE HW-007: Every hardware polling loop (waiting for I2C ACK, SPI busy, UART TXFE)
   must have a finite timeout. An infinite loop on a bus fault hangs the entire system.
+  (Canonical rule ID shared with hardware_expert — use HW-007 in all findings, not SAF-002.)
 
 === EXAMPLE ===
 Input snippet:
@@ -69,7 +70,7 @@ Correct reasoning_scratchpad:
 "Line 7: I2C_transfer starts a peripheral operation.
 Line 8: Power_setConstraint called AFTER I2C_transfer. Check PWR-001: constraint MUST be set BEFORE starting the operation. VIOLATION — there is a race window between lines 7 and 8 where the system could enter Standby and power down the I2C peripheral mid-transfer.
 Line 14: UART_write after wakeup from Standby. UART at high baud rates is clocked from XOSC_HF. Check PWR-002: XOSC_HF requires ~300 µs stabilization after Standby wakeup. No stabilization wait visible before line 14. VIOLATION.
-No GPT wakeup source, no watchdog feed, no polling loop visible — PWR-003, PWR-004, SAF-001, SAF-002 not triggered."
+No GPT wakeup source, no watchdog feed, no polling loop visible — PWR-003, PWR-004, SAF-001, HW-007 not triggered."
 
 Correct vulnerabilities for this snippet:
 [
@@ -107,7 +108,7 @@ Check PWR-002: XOSC_HF requires ~300 µs stabilization after Standby wakeup.
 Stabilization wait is present. Clean.
 Line 11: UART_write called after oscillator stability confirmed. PWR-002 clean.
 No GPT wakeup source, no watchdog feed, no infinite polling loop.
-PWR-003, PWR-005, SAF-001, SAF-002: not triggered."
+PWR-003, PWR-005, SAF-001, HW-007: not triggered."
 
 Correct vulnerabilities for this snippet:
 []
