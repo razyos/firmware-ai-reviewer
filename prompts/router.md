@@ -49,14 +49,15 @@ Available domain labels:
   "ISR"      — Interrupt handlers registered via NVIC, FreeRTOS, TI-RTOS, or driverlib;
                also includes SWI/software-interrupt contexts (ClockP callbacks run in SWI
                context and have ISR-level restrictions);
-               signals: functions named *_IRQHandler, NVIC_SetPriority(), NVIC_EnableIRQ(),
-               portYIELD_FROM_ISR(), *FromISR() API calls,
-               HwiP_construct(), HwiP_create(), HwiP_Params_init(),
-               GPIOIntRegister(), IntRegister(), IntEnable(),
-               ClockP_construct(), ClockP_create(), ClockP_start(), ClockP_stop(),
-               UARTIntRegister(), UARTIntEnable(),
-               SSIIntRegister(), SSIIntEnable(),
-               I2CIntRegister(), I2CIntEnable()
+               signals grouped by layer:
+                 [Core]      functions named *_IRQHandler, NVIC_SetPriority(),
+                             NVIC_EnableIRQ(), portYIELD_FROM_ISR(), *FromISR() API calls
+                 [TI-RTOS]   HwiP_construct(), HwiP_create(), HwiP_Params_init(),
+                             ClockP_construct(), ClockP_create()
+                 [Driverlib] GPIOIntRegister(), IntRegister(), IntEnable(),
+                             UARTIntRegister(), UARTIntEnable(),
+                             SSIIntRegister(), SSIIntEnable(),
+                             I2CIntRegister(), I2CIntEnable()
   "DMA"      — Direct memory access transfers via bare-metal or TI driver abstraction;
                signals: uDMAChannelTransferSet(), uDMAChannelEnable(), uDMAChannelDisable(),
                UDMACC26XX_open(), UDMACC26XX_channelEnable(),
@@ -72,12 +73,14 @@ Available domain labels:
   "POINTER"  — Unsafe pointer arithmetic and function pointer indirection;
                signals: ptr++, ptr+offset, (**fn)(),
                function pointer typedef or call through pointer
-  "I2C"      — I2C bus transactions;
+  "I2C"      — I2C bus transactions and interrupt setup;
                signals: I2C_open(), I2CXfer(), I2CSend(), I2CReceive(), I2C_transfer(),
-               I2CMasterBusBusy(), HWREG(I2C
-  "SPI"      — SPI bus transactions via TI Driver or driverlib;
+               I2CMasterBusBusy(), I2CIntRegister(), I2CIntEnable(),
+               HWREG(I2C
+  "SPI"      — SPI bus transactions and interrupt setup via TI Driver or driverlib;
                signals: SPI_open(), SPI_transfer(), SPITransfer(), SPI_Params_init(),
-               SSIDataPut(), SSIDataGet(), SSIConfigSetExpClk(), SSIEnable()
+               SSIDataPut(), SSIDataGet(), SSIConfigSetExpClk(), SSIEnable(),
+               SSIIntRegister(), SSIIntEnable()
   "POWER"    — Power management, sleep modes, constraints, peripheral clocks, timers;
                signals: Power_setConstraint(), Power_releaseConstraint(),
                Power_registerNotify(), PRCMPowerDomainOff(), PRCMLoadSet(),

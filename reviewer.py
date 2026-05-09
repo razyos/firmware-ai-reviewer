@@ -68,20 +68,21 @@ EXPERT_SCHEMA = {
     "required": ["reasoning_scratchpad", "vulnerabilities"],
 }
 
-DOMAIN_TO_EXPERT = {
-    "RTOS":    "rtos_expert.md",
-    "ISR":     "rtos_expert.md",
-    "BLE":     "rtos_expert.md",   # RF callbacks run at ISR priority — enforce RTOS/ISR rules
-    "DMA":     "hardware_expert.md",
-    "I2C":     "hardware_expert.md",
-    "SPI":     "hardware_expert.md",
-    "MEMORY":  "memory_expert.md",
-    "POINTER": "memory_expert.md",
+# Maps each domain to one or more expert prompt files.
+# Use a list to allow a single domain to trigger multiple experts.
+DOMAIN_TO_EXPERT: dict[str, list[str]] = {
+    "RTOS":    ["rtos_expert.md"],
+    "ISR":     ["rtos_expert.md"],
+    "BLE":     ["rtos_expert.md", "power_expert.md"],  # RF callbacks=ISR; RF ops leak power constraints
+    "DMA":     ["hardware_expert.md"],
+    "I2C":     ["hardware_expert.md"],
+    "SPI":     ["hardware_expert.md"],
+    "MEMORY":  ["memory_expert.md"],
+    "POINTER": ["memory_expert.md"],
     # SECURITY intentionally omitted — security_expert.md not yet created.
-    # Routing to memory_expert would silently drop all crypto/key bugs (no matching rules).
-    # TODO: create security_expert.md, then add: "SECURITY": "security_expert.md"
-    "POWER":   "power_expert.md",
-    "SAFETY":  "power_expert.md",
+    # TODO: add "SECURITY": ["security_expert.md"] once that expert exists.
+    "POWER":   ["power_expert.md"],
+    "SAFETY":  ["power_expert.md"],
 }
 
 
@@ -240,8 +241,12 @@ def review_file(client: genai.Client, path: Path, verbose: bool = False) -> dict
         print(f"  [router] domains: {domains}", file=sys.stderr)
 
     # Phase 2: Select unique expert files based on detected domains
-    expert_files = list({DOMAIN_TO_EXPERT[d] for d in domains if d in DOMAIN_TO_EXPERT})
-    if not expert_files:
+    expert_files = list({ef for d in domains if d in DOMAIN_TO_EXPERT
+                         for ef in DOMAIN_TO_EXPERT[d]})
+    # Fallback: only if the router found NO domains at all (classification failure).
+    # Do NOT fall back when domains were detected but have no expert yet (e.g. SECURITY, UART) —
+    # running all experts on a crypto or UART file produces false positives with no relevant rules.
+    if not expert_files and not domains:
         expert_files = ["rtos_expert.md", "memory_expert.md", "hardware_expert.md", "power_expert.md"]
 
     # Phase 3: Parallel expert reviews
