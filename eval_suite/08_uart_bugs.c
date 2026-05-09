@@ -27,7 +27,6 @@ void initUART(void)
 
 static uint8_t g_statusBuf[32];
 
-/* ClockP SWI callback — runs in SWI context */
 void statusReportClkFxn(uintptr_t arg)
 {
     size_t len = buildStatusPacket(g_statusBuf, sizeof(g_statusBuf));

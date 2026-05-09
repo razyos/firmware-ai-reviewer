@@ -1,10 +1,6 @@
 /*
  * eval_suite/05_callback_context.c
  *
- * Context: A generic I2C driver fires a registered callback from its DMA
- * completion ISR. The application developer must treat this callback as
- * executing in Handler Mode.
- *
  * Platform: TI CC2652R7 / FreeRTOS
  */
 
@@ -17,7 +13,7 @@
 #include "semphr.h"
 #include "task.h"
 
-/* Callback type: driver calls this from its DMA completion ISR */
+/* I2C completion callback type */
 typedef void (*I2C_Callback_t)(void *ctx, uint32_t status);
 
 #define I2C_STATUS_OK    0x00
@@ -32,7 +28,7 @@ typedef struct {
 static SensorCtx_t g_sensor;
 
 /* -----------------------------------------------------------------------
- * I2C completion callback — EXECUTES IN ISR CONTEXT (Handler Mode)
+ * I2C completion callback
  * ----------------------------------------------------------------------- */
 void Sensor_I2cCb(void *ctx, uint32_t status)
 {
@@ -51,7 +47,7 @@ void vSensorTask(void *pvParameters)
     g_sensor.done = xSemaphoreCreateBinary();
 
     /*
-     * Register callback: driver will call Sensor_I2cCb from its ISR.
+     * Register completion callback.
      * I2C_RegisterCallback(handle, Sensor_I2cCb, &g_sensor);
      */
 
