@@ -304,6 +304,45 @@ Priority order — pick the next unchecked item each session:
 - [ ] **CI workflow** — `.github/workflows/eval.yml`: run `--eval` on every push, fail if score < 5/5
 - [ ] **`--stats` flag** — table of rule IDs caught vs missed across all eval files; identifies which prompt needs tuning
 
+## Prompt Engineering Standards (Mandatory)
+
+Every prompt or expert file created in this project — and any other project — MUST apply
+all of the following concepts. When generating a prompt, list which concepts were applied
+at the top as a comment block or in your response to the user.
+
+### Required Concepts Checklist
+
+| Concept | L8 Section | What it means |
+|---|---|---|
+| **Role prompting** | §3.1 | Specific expert persona with named domain knowledge, not generic "you are an AI" |
+| **Structured CoT** | §2.5 | `reasoning_scratchpad` field required before every verdict/output |
+| **Few-shot examples** | §4.7 | At least one full worked example showing correct reasoning quality |
+| **Near-miss examples** | §4.4 | Contrast: what a shallow/wrong output looks like vs. the correct one |
+| **Negative constraints** | §2.6 | Explicit "do not report unless..." threshold; confidence scoring |
+| **Output schema** | §7.6 | JSON schema with required fields enforced at API or prompt level |
+| **Prioritization** | §3.4 | Impact ordering stated upfront; highest-impact items first |
+| **Verification instruction** | §2.4 | "Before reporting, confirm X is not already addressed" |
+| **Temperature** | §7.6 | 0.0 for deterministic eval/classification; stated explicitly |
+
+### When Writing Any Prompt — Required Response Format
+
+After generating a prompt, always state:
+
+```
+PROMPT ENGINEERING CONCEPTS APPLIED:
+  § 3.1  Role prompting — [what persona, what knowledge]
+  § 4.7  Few-shot examples — [how many, what they demonstrate]
+  § 4.4  Near-miss examples — [what contrast is shown]
+  § 2.5  Structured CoT — [field name used for chain-of-thought]
+  § 2.6  Negative constraints — [what the threshold is]
+  § 7.6  Output schema — [how format is enforced]
+  § 3.4  Prioritization — [how ordering is expressed]
+  § 2.4  Verification — [what instruction is given before reporting]
+```
+
+This applies to: expert prompts, router prompts, challenge/red-team prompts,
+synthesizer prompts, and any LLM prompt in any project.
+
 ## Prompt Engineering Gap Analysis (L8)
 
 Applied against `~/ai_course/Lecture8/lecture8a-guide.md`. Use this when working on `eval/*` prompt branches.
