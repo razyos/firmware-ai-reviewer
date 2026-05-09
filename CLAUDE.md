@@ -308,7 +308,9 @@ Priority order — pick the next unchecked item each session:
 
 Every prompt or expert file created in this project — and any other project — MUST apply
 all of the following concepts. When generating a prompt, list which concepts were applied
-at the top as a comment block or in your response to the user.
+in your response to the user — NOT as a comment block inside the prompt file.
+Do NOT add HTML comment blocks or annotation blocks inside prompt/expert files;
+they feed noise into the model's context when the file is used as a system prompt.
 
 ### Required Concepts Checklist
 

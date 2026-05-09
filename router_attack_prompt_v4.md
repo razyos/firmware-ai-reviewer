@@ -1,17 +1,5 @@
 # Attack the Router v4 — Post-Fix Regression and New Domain Coverage
 
-<!--
-PROMPT ENGINEERING CONCEPTS APPLIED (L8 framework):
-  § 3.1  Role prompting — specific expert persona with named technical knowledge
-  § 4.4  Near-miss examples — shallow vs. deep finding contrast with exact quality bar
-  § 4.7  Few-shot reasoning quality — example shows expected scratchpad depth
-  § 2.5  Structured CoT — reasoning_scratchpad required before every verdict
-  § 2.6  Negative constraints — verification instruction, confidence scoring, omit-if-uncertain
-  § 7.6  Output schema — strict JSON with required fields, order by descending impact
-  § 2.4  Verification instruction — re-read router before reporting any finding
-  § 3.4  Prioritization — impact ordering stated upfront; "Critical" reserved for expert miss
--->
-
 ## Your Role
 
 You are a senior embedded firmware security engineer who has read:
