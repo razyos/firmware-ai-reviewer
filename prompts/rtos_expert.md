@@ -27,6 +27,13 @@ RULE ISR-001: ISRs MUST NOT call non-FromISR FreeRTOS APIs.
     xEventGroupSetBitsFromISR
   Consequence: Calling non-FromISR variants from ISR context corrupts the
   FreeRTOS scheduler's internal data structures — crash appears later, elsewhere.
+  ISR CONTEXT RECOGNITION — a function is in ISR context when ANY of these is true:
+    1. Name ends in IRQHandler (hardware ISR — linker places it in the vector table).
+    2. Registered via NVIC_EnableIRQ or IntRegister with an explicit interrupt number.
+    3. Registered as a TI SimpleLink driver completion callback via I2C_RegisterCallback(),
+       SPI_RegisterCallback(), UART callback, or similar driver registration API — on
+       CC2652R7 these callbacks fire directly from DMA completion ISRs.
+    4. Explicitly documented as executing in Handler Mode / ISR context.
 
 RULE ISR-002: Every FromISR call that accepts a BaseType_t* must feed portYIELD_FROM_ISR().
   Required pattern:
@@ -53,9 +60,13 @@ RULE RTOS-001: Data shared between task context and ISR context requires protect
   For read-modify-write from task: taskENTER_CRITICAL / taskEXIT_CRITICAL.
   For single-word flags set by ISR, read by task: declare volatile + use natural-width type
   (uint32_t on Cortex-M guarantees atomic single-instruction read/write).
+  IMPORTANT: Use volatile + natural-width TYPE (uint32_t). volatile bool is NOT
+  sufficient — bool may trigger spurious RTOS-001 findings because it is not the
+  natural machine word. Always recommend volatile uint32_t for ISR/task flags.
   REPORTING REQUIREMENT: you must be able to point to BOTH in the source code:
-    (a) an actual ISR function (IRQHandler suffix, or explicitly registered with NVIC)
-        that writes to the shared variable, AND
+    (a) an actual ISR function that writes to the shared variable — recognized by:
+        IRQHandler suffix, NVIC registration, or TI SimpleLink driver callback
+        registration (I2C_RegisterCallback, SPI_RegisterCallback, etc.), AND
     (b) task code that accesses the same variable without ISR-level protection.
   A comment that says "an ISR might modify this" is NOT sufficient evidence.
   If you cannot point to an ISR function body that writes the variable, do not report

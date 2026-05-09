@@ -32,7 +32,12 @@ RULE MEM-003: Integer promotion UB — narrow unsigned types shifted into the si
   Wrong:   uint8_t val = 0x80; uint32_t r = val << 24;
            val is promoted to signed int; shifting into the sign bit is undefined behaviour.
   Correct: uint32_t r = (uint32_t)val << 24;
-  This applies to uint8_t and uint16_t shifted by amounts that can reach bit 31.
+  Exact thresholds for 32-bit int (Cortex-M4):
+    uint8_t  (max 0xFF):  shift ≥ 24 can set bit 31 (0x80 << 24 = 0x80000000 — UB)
+    uint16_t (max 0xFFFF): shift ≥ 16 can set bit 31 (0x8000 << 16 = 0x80000000 — UB)
+  NOTE: uint8_t << 8 or uint8_t << 16 are NOT UB — maximum result (0xFF << 16 = 0xFF0000)
+  fits in signed int32 without setting the sign bit. Only flag shifts that can reach bit 31.
+  Do NOT flag if there is an explicit (uint32_t) cast before the shift.
 
 RULE MEM-004: Read-Modify-Write on shared peripheral registers is NOT atomic.
   Pattern: *reg |= MASK;  expands to: tmp = *reg; tmp |= MASK; *reg = tmp;
@@ -108,14 +113,14 @@ void waitForTimerFlag(void) {
     while (!(HWREG(GPT0_BASE + GPT_O_RIS) & GPT_RIS_TATORIS)) {} // line 4
 }
 
-static volatile bool g_adcReady = false;  // line 7 — volatile, ISR-written
+static volatile uint32_t g_adcReady = 0U; // line 7 — volatile natural-width, ISR-written
 
 void ADC_IRQHandler(void) {               // line 9
-    g_adcReady = true;                    // line 10 — plain assignment, not RMW
+    g_adcReady = 1U;                      // line 10 — plain assignment, not RMW
 }
 
 uint32_t buildWord(uint8_t domain_mask) {
-    return (uint32_t)domain_mask << 8;    // line 14 — explicit cast before shift
+    return (uint32_t)domain_mask << 8;    // line 14 — shift < 24: cannot reach sign bit
 }
 ```
 
@@ -124,12 +129,13 @@ Correct reasoning_scratchpad:
 (*(volatile uint32_t *)(x)), already volatile-qualified. MEM-001 does not apply.
 Check MEM-002: polling loop on hardware flag. HWREG guarantees volatility —
 optimizer cannot hoist the load. MEM-002 does not apply when HWREG is used. Clean.
-Line 10: g_adcReady = true — plain assignment to a volatile flag. Check MEM-004:
+Line 10: g_adcReady = 1U — plain assignment to a volatile flag. Check MEM-004:
 MEM-004 requires READ-MODIFY-WRITE on a SHARED PERIPHERAL REGISTER (e.g. *reg |= MASK).
 A plain assignment is not RMW. MEM-004 does not apply.
 Line 14: (uint32_t)domain_mask << 8 — check MEM-003: domain_mask is uint8_t.
-The explicit (uint32_t) cast widens the type BEFORE the shift, avoiding signed-int
-promotion. The shift cannot reach the sign bit of uint32_t. MEM-003 does not apply. Clean."
+Shift amount is 8. MEM-003 threshold for uint8_t: shift ≥ 24. Shift 8 < 24, so even
+without the cast, max result would be 0xFF << 8 = 0xFF00 which does not reach bit 31.
+Additionally, the explicit (uint32_t) cast is present. MEM-003 does not apply. Clean."
 
 Correct vulnerabilities for this snippet:
 []
