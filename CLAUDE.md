@@ -184,7 +184,6 @@ A full eval run costs ~$0.007 and takes ~2 min. Use targeted runs during iterati
 | PWR-004  | Power_setConstraint without matching Power_releaseConstraint |
 | PWR-005  | Tickless idle ignores XOSC_HF stabilization time |
 | SAF-001  | Watchdog fed from ISR instead of representative task |
-| SAF-002  | Hardware polling loop without finite timeout |
 | SEC-001  | Key material not zeroized after use (CryptoUtils_memset missing) |
 | SEC-002  | TRNG not opened/seeded before first generateEntropy call |
 | SEC-003  | Hardcoded key or IV byte-array literal in firmware image |
@@ -195,8 +194,7 @@ A full eval run costs ~$0.007 and takes ~2 min. Use targeted runs during iterati
 | UART-003 | DMA-UART TX buffer reused before transfer completes |
 | UART-004 | Blocking UART write called from ISR or SWI context |
 
-**Known taxonomy issues (to resolve in session 8+):**
-- `HW-007` and `SAF-002` are the same rule (polling loop without timeout) split across two experts — needs canonicalization
+**Known taxonomy issues (to resolve in future sessions):**
 - `RTOS-005` (xQueueSend return unchecked), `RTOS-006` (no stack overflow detection), `MEM-009` (pvPortMalloc NULL dereference), `MEM-010` (use-after-free), `HW-009` (SPI CS not deasserted) — identified gaps, not yet implemented
 
 ## Next Session Start Instructions
