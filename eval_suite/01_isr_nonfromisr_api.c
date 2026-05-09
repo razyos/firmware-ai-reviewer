@@ -79,6 +79,7 @@ void App_Init(void)
     g_rxQueue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(uint8_t));
     xTaskCreate(vUartRxTask, "UartRx", 512, NULL, 3, &g_rxTaskHandle);
 
+    UARTFIFOEnable(UART0_BASE);
     UARTIntEnable(UART0_BASE, UART_INT_RX | UART_INT_RT);
     /* NVIC_SetPriority and NVIC_EnableIRQ omitted for brevity */
 }
