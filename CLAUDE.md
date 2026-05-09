@@ -9,14 +9,14 @@ Portfolio project demonstrating AI engineering applied to embedded systems.
 ## Architecture (4 phases)
 
 ```
-Phase 1 — Route:   reviewer.py calls claude-haiku with prompts/router.md
+Phase 1 — Route:   reviewer.py calls gemini-2.0-flash with prompts/router.md
                    Input:  .c file content
                    Output: JSON array of detected domains e.g. ["RTOS", "ISR"]
 
 Phase 2 — Inject:  orchestrator maps domains → unique set of expert prompt files
                    DOMAIN_TO_EXPERT dict in reviewer.py controls the mapping
 
-Phase 3 — Experts: parallel ThreadPoolExecutor calls to claude-sonnet
+Phase 3 — Experts: parallel ThreadPoolExecutor calls to gemini-2.5-flash
                    each expert gets its prompt + the .c file
                    each returns a JSON vulnerabilities array with rule IDs
 
@@ -114,6 +114,72 @@ python reviewer.py --eval
 3. Add an entry to the Rule Taxonomy in this file
 4. Create an eval file that contains a known violation of the new rule
 5. Run `--eval` to verify detection
+
+## Branching Strategy
+
+**Model: GitHub Flow** — main is always green, every change goes through a branch + PR.
+
+### Rules (enforce these in every session)
+
+1. **Never commit directly to main** — always branch, even for a one-line prompt tweak.
+2. **main must always pass eval 5/5** — do not merge a PR if `python reviewer.py --eval` shows any regression.
+3. **One logical change per branch** — a branch adds one eval file OR tunes one prompt OR adds one feature. Not all three.
+4. **PR description must include eval score** — copy the eval output into the PR body so the history shows the score at each merge point.
+
+### Branch Naming
+
+```
+feature/add-pwr-eval-file          ← new eval test or new rule
+feature/add-synthesizer-phase      ← new pipeline phase or capability
+fix/json-parse-fallback            ← bug in orchestrator code
+eval/tune-rtos-expert-prompt       ← prompt tuning (score must not drop)
+eval/tune-memory-expert-prompt
+```
+
+### Session Workflow
+
+```bash
+# Start of every session — check state
+git status
+git pull origin main
+python reviewer.py --eval              # verify main is green before starting
+
+# Pick next item from Improvement Backlog
+git checkout -b feature/add-pwr-eval-file
+
+# Do the work, verify after every meaningful change
+python reviewer.py --eval
+
+# When green and done
+git add .
+git commit -m "feat: add PWR eval file covering PWR-001 and PWR-003"
+git push -u origin feature/add-pwr-eval-file
+gh pr create --title "feat: add PWR eval file" --body "$(cat <<'EOF'
+## What
+Add eval_suite/06_power_constraint_race.c targeting PWR-001 (constraint set after DMA
+start) and PWR-003 (GPT used as Standby wakeup source).
+
+## Eval
+\`\`\`
+Eval Results: 6/6 passed
+[PASS] 01_isr_nonfromisr_api.c
+[PASS] 02_volatile_missing.c
+[PASS] 03_dma_stack_buffer.c
+[PASS] 04_rmw_race.c
+[PASS] 05_callback_context.c
+[PASS] 06_power_constraint_race.c
+\`\`\`
+EOF
+)"
+# Review + merge PR on GitHub, then:
+git checkout main && git pull origin main
+```
+
+### What Not to Do
+
+- Do not `git push origin main` directly.
+- Do not merge a branch where eval shows FAIL — fix the prompt first, then merge.
+- Do not put multiple backlog items in one branch — reviewers (and interviewers) should be able to read the PR history as a clean log of improvements.
 
 ## Improvement Backlog
 
