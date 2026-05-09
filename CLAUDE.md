@@ -8,14 +8,15 @@ Portfolio project demonstrating AI engineering applied to embedded systems.
 
 ## Current State (as of last session)
 
-- **Eval suite:** 5/5 passing on main — verified with billing enabled, deterministic
+- **Eval suite:** 6/6 passing on main — deterministic at temperature=0.0
 - **Billing:** enabled on Google Cloud; $10 spend cap set
 - **Models:** `gemini-2.5-flash` for both router and expert (2.5 Pro returns 503 under high demand — revisit later)
-- **Rate limiter:** now configurable via `RATE_LIMIT_INTERVAL` in `.env` — default 1.0s (paid tier); set 13.0 for free tier
-- **Temperature:** 0.0 (greedy decoding) — eliminated MEM-003 non-determinism that caused ~30% false negatives
-- **Thinking tokens:** disabled (`thinking_budget=0`) — were consuming billed tokens with no quality benefit
-- **Router:** tightened to require evidence before including a domain — fixed over-classification that loaded all 4 experts on single-domain files
+- **Rate limiter:** configurable via `RATE_LIMIT_INTERVAL` in `.env` — default 1.0s (paid tier)
+- **Temperature:** 0.0 (greedy decoding) — deterministic, no eval flakiness
+- **Thinking tokens:** disabled (`thinking_budget=0`) — no cost, no benefit for structured JSON output
+- **Router:** requires evidence before including a domain — no over-classification
 - **Prompt engineering (L8):** all 4 branches merged — few-shot examples, false-positive suppression, structured reasoning steps, router 3rd example
+- **Header context injection:** implemented — `_build_context()` prepends local `#include "..."` headers as labelled blocks; line numbers preserved; `"headers"` field in output JSON; proven by eval file 06 (MEM-005 only visible via header)
 - **Next focus:** add new eval files (PWR, HW-002, RTOS-001, ISR-003) to expand rule coverage
 
 ## Architecture (4 phases)
@@ -56,12 +57,15 @@ eval_suite/
   03_dma_stack_buffer.c            — bugs: HW-001, HW-003
   04_rmw_race.c                    — bugs: MEM-004, RTOS-003
   05_callback_context.c            — bugs: ISR-001, ISR-002
+  06_packed_struct_dma.c           — bugs: MEM-005 (requires sensor_types.h)
+  sensor_types.h                   — header with packed struct definition for file 06
   expected/
     01_isr_nonfromisr_api.json     — ground-truth expected_rules
     02_volatile_missing.json
     03_dma_stack_buffer.json
     04_rmw_race.json
     05_callback_context.json
+    06_packed_struct_dma.json
 ```
 
 ## Environment / Setup
@@ -210,6 +214,7 @@ Priority order — pick the next unchecked item each session:
 - [x] **Thinking tokens disabled** — `thinking_budget=0` on all calls
 - [x] **Temperature → 0.0** — deterministic eval, eliminated MEM-003 flakiness
 - [x] **Configurable rate limit** — `RATE_LIMIT_INTERVAL` env var, default 1.0s
+- [x] **Header context injection** — `_build_context()` in reviewer.py; eval file 06 proves it
 - [ ] **Switch to `gemini-2.5-pro`** — returns 503 under high demand currently; retry in a future session; set `EXPERT_MODEL=gemini-2.5-pro` in `.env` when available
 
 ### New Eval Coverage
