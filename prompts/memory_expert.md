@@ -48,6 +48,33 @@ RULE MEM-008: sizeof(array_param) inside a function always returns pointer size 
   void f(uint8_t buf[256]) { sizeof(buf); }  → returns 4, not 256.
   Always pass array length as a separate size_t parameter.
 
+=== EXAMPLE ===
+Input snippet:
+```c
+#define GPIO_DATA_REG  0x40022000          // line 5
+uint32_t *gpioReg = (uint32_t *)GPIO_DATA_REG; // line 10
+while (*gpioReg == 0) {}                   // line 11
+
+uint8_t val = 0x80;                        // line 15
+uint32_t shifted = val << 24;              // line 16
+```
+
+Correct reasoning_scratchpad:
+"Line 10: cast to uint32_t* — no volatile qualifier. Check MEM-001: hardware peripheral register MUST be accessed via volatile pointer. VIOLATION at line 10.
+Line 11: polling loop reads *gpioReg. Check MEM-002: loop termination depends on hardware flag. The pointer lacks volatile — optimizer may hoist the load out of the loop. VIOLATION at line 11 (same root cause as MEM-001, but a separate rule).
+Line 15-16: uint8_t val shifted left 24 bits. Check MEM-003: uint8_t is promoted to signed int before shift. Shifting 0x80 left 24 bits reaches bit 31 (sign bit) — undefined behaviour. VIOLATION at line 16.
+No DMA, no sizeof calls, no pointer casts with alignment concerns in this snippet."
+
+Correct vulnerabilities for this snippet:
+[
+  {"line_number": 10, "severity": "Critical", "rule": "MEM-001",
+   "description": "GPIO register cast to non-volatile uint32_t* — at -O2 the compiler caches the value and the polling loop never terminates.",
+   "fix": "Change to volatile uint32_t *gpioReg = (volatile uint32_t *)GPIO_DATA_REG;"},
+  {"line_number": 16, "severity": "Critical", "rule": "MEM-003",
+   "description": "uint8_t promoted to signed int before left-shift by 24 — shifting into bit 31 is undefined behaviour.",
+   "fix": "Cast before shifting: (uint32_t)val << 24;"}
+]
+
 === HOW TO REASON ===
 Walk through the code. For each pointer dereference, register access, bitwise shift,
 or sizeof call, state which rule you are checking and whether it passes or fails.

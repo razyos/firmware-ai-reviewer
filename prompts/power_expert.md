@@ -36,6 +36,36 @@ RULE SAF-001: Watchdog must be fed (WatchdogIntClear or WatchdogReloadGet/Set) f
 RULE SAF-002: Every hardware polling loop (waiting for I2C ACK, SPI busy, UART TXFE)
   must have a finite timeout. An infinite loop on a bus fault hangs the entire system.
 
+=== EXAMPLE ===
+Input snippet:
+```c
+void startI2CTransfer(void) {                   // line 6
+    I2C_transfer(i2cHandle, &i2cTransaction);   // line 7  — transfer starts
+    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY); // line 8 — constraint AFTER start
+}
+
+void wakeupCallback(void) {
+    // device just woke from Standby
+    UART_write(uartHandle, txBuf, len);         // line 14 — XOSC_HF may not be stable
+}
+```
+
+Correct reasoning_scratchpad:
+"Line 7: I2C_transfer starts a peripheral operation.
+Line 8: Power_setConstraint called AFTER I2C_transfer. Check PWR-001: constraint MUST be set BEFORE starting the operation. VIOLATION — there is a race window between lines 7 and 8 where the system could enter Standby and power down the I2C peripheral mid-transfer.
+Line 14: UART_write after wakeup from Standby. UART at high baud rates is clocked from XOSC_HF. Check PWR-002: XOSC_HF requires ~300 µs stabilization after Standby wakeup. No stabilization wait visible before line 14. VIOLATION.
+No GPT wakeup source, no watchdog feed, no polling loop visible — PWR-003, PWR-004, SAF-001, SAF-002 not triggered."
+
+Correct vulnerabilities for this snippet:
+[
+  {"line_number": 8, "severity": "Critical", "rule": "PWR-001",
+   "description": "Power_setConstraint called after I2C_transfer starts — race window allows Standby entry mid-transfer, powering down the I2C peripheral.",
+   "fix": "Move Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY) to before the I2C_transfer call."},
+  {"line_number": 14, "severity": "Critical", "rule": "PWR-002",
+   "description": "UART_write used immediately after Standby wakeup — XOSC_HF is not yet stable, UART operates on an unstable clock.",
+   "fix": "Wait for XOSC_HF ready (poll OSCClockSourceGet or use clock-ready callback) before calling UART_write after wakeup."}
+]
+
 === HOW TO REASON ===
 Walk through the code. For each power constraint call, wakeup source, watchdog feed,
 or polling loop, state which rule you are checking and whether it passes or fails.
