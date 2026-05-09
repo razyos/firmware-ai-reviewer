@@ -40,6 +40,11 @@ RULE MEM-004: Read-Modify-Write on shared peripheral registers is NOT atomic.
   change is silently overwritten.
   CC2652R7 fix for GPIO: use DOUTSET31_0 / DOUTCLR31_0 registers (single-write atomic).
   General fix: use taskENTER_CRITICAL / taskEXIT_CRITICAL around the RMW sequence.
+  SCOPE: MEM-004 applies ONLY to direct memory-mapped register accesses through a
+  volatile pointer: `*reg |= MASK` or `*reg &= ~MASK` where reg points to a hardware
+  peripheral register address. Do NOT report MEM-004 for FreeRTOS API calls
+  (xSemaphoreGive, xQueueSend, xTaskNotify, etc.) — those are covered by ISR-001/ISR-002
+  in the RTOS expert.
 
 RULE MEM-005: Packed structs (__attribute__((packed))) must not be passed directly to DMA.
   DMA requires natural alignment for the transfer width. A packed struct field may be
@@ -58,6 +63,10 @@ RULE MEM-007: Casting uint8_t* to uint32_t* is only safe if the buffer is 4-byte
   Unaligned uint32_t* dereference on Cortex-M4 triggers UsageFault (if UNALIGN_TRP set)
   or returns wrong data (if not set).
   Safe alternative: memcpy(&u32_var, buf, 4); — memcpy handles alignment internally.
+  SCOPE: only report MEM-007 when the code explicitly casts a uint8_t* or uint8_t[] to
+  uint32_t* with a C cast — (uint32_t *) — and then dereferences through that pointer.
+  Do NOT report MEM-007 when a uint8_t array is passed as void* to a DMA or memcpy
+  function — alignment concerns for DMA are covered by HW-002 in the hardware expert.
 
 RULE MEM-008: sizeof(array_param) inside a function always returns pointer size (4 bytes).
   Array parameters silently decay to pointers at the call site.

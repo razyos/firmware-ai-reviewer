@@ -1,16 +1,9 @@
 /*
  * eval_suite/05_callback_context.c
  *
- * Planted bugs:
- *   ISR-001 — Callback executed in ISR context calls xSemaphoreGive()
- *             (blocking task-context API) instead of xSemaphoreGiveFromISR()
- *   ISR-002 — portYIELD_FROM_ISR() is not called after the semaphore give;
- *             the waiting task is unblocked but waits up to 1 tick to run
- *
  * Context: A generic I2C driver fires a registered callback from its DMA
  * completion ISR. The application developer must treat this callback as
- * executing in Handler Mode — any FreeRTOS API called inside it must be
- * the FromISR variant.
+ * executing in Handler Mode.
  *
  * Platform: TI CC2652R7 / FreeRTOS
  */
@@ -46,27 +39,7 @@ void Sensor_I2cCb(void *ctx, uint32_t status)
     SensorCtx_t *s = (SensorCtx_t *)ctx;
 
     if (status == I2C_STATUS_OK) {
-        /*
-         * BUG [ISR-001]: xSemaphoreGive is a task-context API.
-         * Calling it from Handler Mode corrupts the FreeRTOS scheduler's
-         * internal structures. The corruption is typically silent at the
-         * point of the call and manifests as an assertion failure or crash
-         * in an unrelated location seconds later.
-         *
-         * Fix: replace with:
-         *   BaseType_t xWoken = pdFALSE;
-         *   xSemaphoreGiveFromISR(s->done, &xWoken);
-         *   portYIELD_FROM_ISR(xWoken);
-         */
         xSemaphoreGive(s->done);
-
-        /*
-         * BUG [ISR-002]: portYIELD_FROM_ISR() is absent.
-         * Even with the ISR-001 fix applied, omitting this call means
-         * the task blocked on s->done will not be scheduled until the
-         * next SysTick interrupt — up to 1 ms of added latency for a
-         * time-sensitive sensor read.
-         */
     }
 }
 

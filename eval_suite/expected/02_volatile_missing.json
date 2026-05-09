@@ -1,4 +1,4 @@
 {
-  "description": "Timer polling loop reads MMIO register without volatile (optimizer kills loop at -O2), and uint8_t shift causes integer promotion UB. Non-volatile pointer in polling loop also violates MEM-002 (same root cause as MEM-001, separate rule).",
+  "description": "Timer polling loop reads MMIO register without volatile (MEM-001/MEM-002: optimizer eliminates re-read at -O2). PRCM_EnableGptClocks shifts uint8_t domain_mask left by 24 bits: domain_mask is promoted to signed int; if domain_mask >= 0x80, the result sets bit 31 of int — UB in C99/C11 (MEM-003). Fix: (uint32_t)domain_mask << 24.",
   "expected_rules": ["MEM-001", "MEM-002", "MEM-003"]
 }
