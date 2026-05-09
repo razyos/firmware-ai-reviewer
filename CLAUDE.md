@@ -6,23 +6,24 @@ A prompt-chained LLM pipeline for static analysis of embedded C firmware.
 Target platform: TI CC2652R7 (ARM Cortex-M4F), FreeRTOS, C99.
 Portfolio project demonstrating AI engineering applied to embedded systems.
 
-## Current State (as of last session)
+## Current State (as of session 8)
 
-- **Eval suite:** 6/6 passing on main — deterministic at temperature=0.0, 0 FP warnings
+- **Eval suite:** 8/8 passing on main — 0 FP warnings, deterministic at temperature=0.0
 - **Billing:** enabled on Google Cloud; $10 spend cap set
 - **Models:** `gemini-2.5-flash` for both router and expert (2.5 Pro returns 503 under high demand — revisit later)
 - **Rate limiter:** configurable via `RATE_LIMIT_INTERVAL` in `.env` — default 1.0s (paid tier)
 - **Temperature:** 0.0 (greedy decoding) — deterministic, no eval flakiness
 - **Thinking tokens:** disabled (`thinking_budget=0`) — no cost, no benefit for structured JSON output
 - **Router:** 12 domains (RTOS, ISR, DMA, MEMORY, POINTER, I2C, SPI, POWER, SAFETY, UART, BLE, SECURITY) — hardened over 7 rounds of adversarial red-team challenge prompts (PRs #27–#44)
-- **DOMAIN_TO_EXPERT:** `dict[str, list[str]]` (1-to-many) — ISR/BLE→rtos_expert; DMA/I2C/SPI→hardware_expert; MEMORY/POINTER→memory_expert; POWER/SAFETY→power_expert; UART/SECURITY→unmapped (experts TBD)
-- **Fallback fix:** `if not expert_files and not domains` — only fires on classification failure, NOT on unmapped domains (prevents all-expert false positives for SECURITY/UART files)
-- **Prompt engineering (L8):** all gaps addressed — few-shot + near-miss examples (§4.4) in all 4 experts, 4 router examples covering 2/2/3/4-domain cases, invocation-based `#define` rules, sizeof() qualification
+- **DOMAIN_TO_EXPERT:** `dict[str, list[str]]` (1-to-many) — ISR/BLE→rtos_expert; DMA/I2C/SPI→hardware_expert; MEMORY/POINTER→memory_expert; POWER/SAFETY→power_expert; UART→uart_expert; SECURITY→security_expert
+- **Expert coverage:** all 6 routed domains now have experts — zero silent gaps
+- **Fallback fix:** `if not expert_files and not domains` — only fires on classification failure, NOT on unmapped domains
+- **Prompt engineering (L8):** all gaps addressed — few-shot + near-miss examples (§4.4) in all 6 experts, 4 router examples covering 2/2/3/4-domain cases, invocation-based `#define` rules, sizeof() qualification
 - **Header context injection:** implemented — `_build_context()` prepends local `#include "..."` headers; line numbers preserved; proven by eval file 06
 - **Model profiles:** `APP_ENV=dev` (flash-lite router + flash expert) / `APP_ENV=demo` (flash router + 2.5-pro expert)
 - **Robustness fixes (PRs #21, #22):** path traversal guard, safety block crash fix, MAX_TOKENS truncation warning, block comment include stripping
 - **Challenge protocol:** mandatory 4-step audit before implementing any LLM challenge response (see Challenge Response Audit Protocol section)
-- **Next priority: `security_expert.md`** — SECURITY domain fires in router but has zero expert coverage and no fallback; crypto files get no analysis
+- **Taxonomy:** SAF-002 canonicalized to HW-007 (same rule; power_expert now uses HW-007 for polling-loop-without-timeout)
 
 ## Architecture (4 phases)
 
@@ -55,7 +56,9 @@ prompts/
   rtos_expert.md                   — rules ISR-001..004, RTOS-001..004
   memory_expert.md                 — rules MEM-001..008
   hardware_expert.md               — rules HW-001..008
-  power_expert.md                  — rules PWR-001..005, SAF-001..002
+  power_expert.md                  — rules PWR-001..005, SAF-001 (HW-007 canonical)
+  security_expert.md               — rules SEC-001..005 (added session 8)
+  uart_expert.md                   — rules UART-001..004 (added session 8)
 eval_suite/
   01_isr_nonfromisr_api.c          — bugs: ISR-001, ISR-002
   02_volatile_missing.c            — bugs: MEM-001, MEM-002, MEM-003
@@ -63,6 +66,8 @@ eval_suite/
   04_rmw_race.c                    — bugs: MEM-004, RTOS-003
   05_callback_context.c            — bugs: ISR-001, ISR-002
   06_packed_struct_dma.c           — bugs: MEM-005, HW-002 (requires sensor_types.h)
+  07_crypto_key_leak.c             — bugs: SEC-001, SEC-003 (added session 8)
+  08_uart_bugs.c                   — bugs: UART-001, UART-004 (added session 8)
   sensor_types.h                   — header with packed struct definition for file 06
   expected/
     01_isr_nonfromisr_api.json     — ground-truth expected_rules
@@ -71,6 +76,8 @@ eval_suite/
     04_rmw_race.json
     05_callback_context.json
     06_packed_struct_dma.json
+    07_crypto_key_leak.json
+    08_uart_bugs.json
 ```
 
 ## Environment / Setup
@@ -127,6 +134,8 @@ A full eval run costs ~$0.007 and takes ~2 min. Use targeted runs during iterati
 | `memory_expert.md` | `02,04,06` |
 | `hardware_expert.md` | `03,06` |
 | `power_expert.md` | *(no eval files yet)* |
+| `security_expert.md` | `07` |
+| `uart_expert.md` | `08` |
 
 ## How to Add a New Eval Test
 
@@ -203,93 +212,45 @@ A full eval run costs ~$0.007 and takes ~2 min. Use targeted runs during iterati
 I'm continuing work on the firmware-ai-reviewer portfolio project at
 /Users/razyosef/firmware-ai-reviewer. Read CLAUDE.md first for full context.
 
-Step 0 — merge pending PR (if not already done):
-  PR #46 fix/router-hwreg-unclosed-parens is open — HWREG( prefix signals
-  were unclosed in router.md; fixed to HWREG(PREFIX...) notation.
-  This PR requires a full eval before merge (router changed).
-
-  git checkout fix/router-hwreg-unclosed-parens   # or just:
-  python reviewer.py --eval                        # must be 6/6
-  gh pr merge 46 --squash --delete-branch
-  git checkout main && git pull origin main
-
 Step 1 — verify green baseline:
-  python reviewer.py --eval   # must be 6/6 before starting new work
+  python reviewer.py --eval   # must be 8/8 before starting new work
 
-Step 2 — create security_expert.md (highest priority — silent gap):
-  SECURITY domain fires in the router but has ZERO expert coverage.
-  A crypto file today routes to SECURITY, no expert runs, output is
-  "findings": [] with no warning. Silent false negative.
+Step 2 — add new eval coverage for existing domains (no expert work needed):
+  All 6 experts exist. Next priority: eval coverage for rules with no test files.
 
-  Full chain:
-    a) Create prompts/security_expert.md — apply ALL L8 concepts:
-         § 3.1  Role: senior embedded security engineer, TI CC2652R7 CryptoCell,
-                AES-CCM, SHA-2, PKA, TRNG, CryptoKey driver
-         § 2.6  Threshold: "do not report unless you can cite the exact line
-                and the specific SEC-00N rule ID"
-         § 3.4  Prioritization: Critical first (key material exposure), then Warning
-         § 2.5  Structured CoT: reasoning_scratchpad field
-         § 4.7  Few-shot example: full worked snippet with correct scratchpad
-         § 4.4  Near-miss example: shallow vs deep finding contrast
-         § 7.6  Output schema: same EXPERT_SCHEMA as other experts
-         § 2.4  Verification: "before reporting, confirm the key is not immediately
-                overwritten or that CryptoUtils_memset is not called later"
+  a) PWR eval file (power_expert.md — no eval coverage yet):
+       Create eval_suite/09_power_bugs.c — plant PWR-001 + PWR-003:
+         PWR-001: Power_setConstraint called AFTER I2C_transfer starts
+         PWR-003: GPT timer used as Standby wakeup source (PERIPH domain off)
+       Create eval_suite/expected/09_power_bugs.json
+       Run --eval; score must be 9/9
 
-       Rules to implement:
-         SEC-001: Key material not zeroized after use — memset/CryptoUtils_memset
-                  missing after AESECB_open / AESCCM_open operation completes
-         SEC-002: TRNG_open() not called before first TRNG_generateEntropy() —
-                  RNG used uninitialized
-         SEC-003: Hardcoded key or IV as a byte-array literal in firmware image —
-                  const uint8_t key[] = {0xAA, ...} visible in binary
-         SEC-004: CryptoKey object reused across operations without
-                  CryptoKey_initKey() reinit — stale key state
-         SEC-005: AES operation result buffer left in SRAM after use without
-                  CryptoUtils_memset zeroization
+  b) HW-002 eval file (unaligned DMA buffer):
+       Create eval_suite/10_dma_alignment.c — plant HW-002:
+         uint8_t txBuf[32] — byte-aligned buffer passed to 32-bit DMA transfer
+         uDMAChannelTransferSet(..., UDMA_SIZE_32, ...) with non-4-byte-aligned src
+       Create eval_suite/expected/10_dma_alignment.json
+       Run --eval; score must be 10/10
 
-    b) Add "SECURITY": ["security_expert.md"] to DOMAIN_TO_EXPERT in reviewer.py
-    c) Create eval_suite/07_crypto_key_leak.c — plant SEC-001 + SEC-003:
-         - AES-CCM encrypt, key buffer not zeroized after operation
-         - Hardcoded IV literal as a const byte array
-    d) Create eval_suite/expected/07_crypto_key_leak.json:
-         { "description": "...", "expected_rules": ["SEC-001", "SEC-003"] }
-    e) Run --eval; score must be 7/7
+Step 3 — taxonomy gap rules (add to existing experts, each needs eval file):
+  Pick one at a time. Each requires: add rule to expert, create eval file, score N+1/N+1.
 
-Step 3 — create uart_expert.md (second silent gap):
-  UART domain fires in the router but has ZERO expert coverage.
-  Same full chain:
-    a) Create prompts/uart_expert.md — apply ALL L8 concepts.
-       Rules to implement:
-         UART-001: UARTFIFOEnable() not called — FIFO disabled, single-byte
-                   interrupt storm at high baud rates
-         UART-002: Baud rate divisor miscalculated — UARTConfigSetExpClk()
-                   called with wrong clock source or wrong divisor formula
-         UART-003: DMA-UART TX buffer reused before DMA transfer completes —
-                   CPU writes new data before uDMAChannelModeGet() confirms STOP
-         UART-004: Blocking UART write (UART_write / UARTCharPut) called from
-                   ISR or ClockP SWI callback context
-    b) Add "UART": ["uart_expert.md"] to DOMAIN_TO_EXPERT in reviewer.py
-    c) Create eval_suite/08_uart_bugs.c — plant UART-001 + UART-004
-    d) Create eval_suite/expected/08_uart_bugs.json
-    e) Run --eval; score must be 8/8
+  RTOS-005: xQueueSend() / xQueueSendFromISR() return value not checked
+    → add to rtos_expert.md; create 11_rtos_queue_unchecked.c
+  RTOS-006: No stack overflow detection configured
+    → add to rtos_expert.md; create 12_rtos_stack_overflow.c
+  MEM-009: pvPortMalloc() return value not checked before dereference
+    → add to memory_expert.md; create 13_malloc_null_deref.c
+  MEM-010: Use-after-free after vPortFree()
+    → add to memory_expert.md; create 14_use_after_free.c
+  HW-009: SPI CS not deasserted between transactions
+    → add to hardware_expert.md; create 15_spi_cs_stuck.c
 
-Step 4 — rule taxonomy cleanup (after new experts are green):
-  Two issues identified in existing taxonomy:
-    DUPLICATE: HW-007 ("Hardware polling loop without timeout") and
-               SAF-002 ("Hardware polling loop without finite timeout")
-               are the same rule split across two experts. Decide:
-               keep in both experts (same rule, two domains) or
-               canonicalize to one ID and reference from the other.
-    GAPS to consider adding:
-      RTOS-005: xQueueSend() / xQueueSendFromISR() return value not checked —
-                queue full silently drops data; return pdFAIL never handled
-      RTOS-006: No stack overflow detection — configCHECK_FOR_STACK_OVERFLOW=0
-                or uxTaskGetStackHighWaterMark never called in production build
-      MEM-009:  pvPortMalloc() return value not checked before dereference
-      MEM-010:  Use-after-free — pointer used after vPortFree()
-      HW-009:   SPI CS line not deasserted between transactions (missing
-                GPIO_write(CS_PIN, 1) after SPI_transfer())
-    Each gap requires: rule added to expert, eval file planted, score N+1/N+1.
+Step 4 — features (after eval coverage is solid):
+  - Synthesizer phase: 5th LLM call generating corrected C code as a patch
+  - --format github flag: output as GitHub PR review comment JSON
+  - CI workflow: .github/workflows/eval.yml — run --eval on every push
+  - --stats flag: table of rule IDs caught vs missed across eval files
 ```
 
 ## Branching Strategy
@@ -354,34 +315,30 @@ Priority order — pick the next unchecked item each session:
 - [x] **Header context injection** — `_build_context()` in reviewer.py; eval file 06 proves it
 - [x] **Model profiles** — `APP_ENV=dev/demo` in `.env`; README updated
 - [x] **Robustness fixes** — path traversal, safety block crash, MAX_TOKENS truncation, block comment includes, redundant I/O (PRs #21, #22)
-- [x] **False positive elimination** — near-miss examples in all 4 experts; 0 FP warnings on 6/6 eval
+- [x] **False positive elimination** — near-miss examples in all 6 experts; 0 FP warnings on 8/8 eval
 - [ ] **Switch to `gemini-2.5-pro`** — returns 503 under high demand currently; retry in a future session
 
 ### Router Expansion
 
-- [x] **Add UART domain** — router label done (PR #27–#44 adversarial hardening); `uart_expert.md` still needed
+- [x] **Add UART domain** — router label done; `uart_expert.md` added session 8 (PR #49)
 - [x] **Add BLE/RF domain** — router label done; routes to `rtos_expert.md` for ISR/callback rules (RF callbacks run at ISR priority); `ble_expert.md` not yet created
-- [x] **Add SECURITY domain** — router label done; `security_expert.md` not yet created — **NEXT PRIORITY** (silent gap: crypto files get zero expert analysis)
+- [x] **Add SECURITY domain** — router label done; `security_expert.md` added session 8 (PR #48)
 
-### Pending PR
+### Expert Coverage Gaps
 
-- [ ] **PR #46** `fix/router-hwreg-unclosed-parens` — HWREG( prefix signals closed to HWREG(PREFIX...) notation; needs `python reviewer.py --eval` (6/6) before merge
+- [x] **`security_expert.md`** — SEC-001..005; eval 07_crypto_key_leak.c; 7/7 ✓
+- [x] **`uart_expert.md`** — UART-001..004; eval 08_uart_bugs.c; 8/8 ✓
 
-### Expert Coverage Gaps (highest priority)
+### Taxonomy Cleanup
 
-- [ ] **`security_expert.md`** — SEC-001..005; eval 07_crypto_key_leak.c; target 7/7
-- [ ] **`uart_expert.md`** — UART-001..004; eval 08_uart_bugs.c; target 8/8
-
-### Taxonomy Cleanup (after new experts)
-
-- [ ] **HW-007 / SAF-002 duplicate** — same rule in two experts; canonicalize
+- [x] **HW-007 / SAF-002 duplicate** — canonicalized to HW-007 in both experts (PR #50)
 - [ ] **RTOS-005** — xQueueSend return value not checked (silent queue full)
 - [ ] **RTOS-006** — no stack overflow detection configured
 - [ ] **MEM-009** — pvPortMalloc() NULL dereference (return unchecked)
 - [ ] **MEM-010** — use-after-free after vPortFree()
 - [ ] **HW-009** — SPI CS not deasserted between transactions
 
-### New Eval Coverage (existing domains)
+### New Eval Coverage (existing domains, no expert work needed)
 
 - [ ] **Add PWR eval file** — plant PWR-001 (constraint set after DMA start) and PWR-003 (GPT as Standby wakeup); no eval coverage for power rules yet
 - [ ] **Add HW-002 eval file** — unaligned DMA buffer; uint8_t array passed to 32-bit DMA transfer
@@ -392,7 +349,7 @@ Priority order — pick the next unchecked item each session:
 
 - [ ] **Synthesizer phase** — 5th LLM call: takes original code + findings JSON → generates corrected C code as a patch
 - [ ] **`--format github` flag** — output findings as GitHub PR review comment JSON (GitHub REST API schema)
-- [ ] **CI workflow** — `.github/workflows/eval.yml`: run `--eval` on every push, fail if score < 5/5
+- [ ] **CI workflow** — `.github/workflows/eval.yml`: run `--eval` on every push, fail if score < 8/8
 - [ ] **`--stats` flag** — table of rule IDs caught vs missed across all eval files; identifies which prompt needs tuning
 
 ## Challenge Response Audit Protocol (Mandatory)
