@@ -73,7 +73,9 @@ EXPERT_SCHEMA = {
 DOMAIN_TO_EXPERT: dict[str, list[str]] = {
     "RTOS":    ["rtos_expert.md"],
     "ISR":     ["rtos_expert.md"],
-    "BLE":     ["rtos_expert.md", "power_expert.md"],  # RF callbacks=ISR; RF ops leak power constraints
+    "BLE":     ["rtos_expert.md"],  # RF callbacks run at ISR priority; power constraints are implicit
+    # in the RF driver — power_expert finds nothing without explicit Power_setConstraint calls.
+    # TODO: add ["rtos_expert.md", "rf_expert.md"] once rf_expert.md is created.
     "DMA":     ["hardware_expert.md"],
     "I2C":     ["hardware_expert.md"],
     "SPI":     ["hardware_expert.md"],
