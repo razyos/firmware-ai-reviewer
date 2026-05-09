@@ -27,6 +27,30 @@ EVAL_DIR    = SCRIPT_DIR / "eval_suite"
 ROUTER_MODEL = "gemini-2.0-flash"
 EXPERT_MODEL = "gemini-2.5-flash"
 
+# JSON schema enforced at the API level for expert calls.
+# Eliminates JSONDecodeError — the model is constrained to output this structure.
+EXPERT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reasoning_scratchpad": {"type": "string"},
+        "vulnerabilities": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "line_number":   {"type": "integer"},
+                    "severity":      {"type": "string", "enum": ["Critical", "Warning", "Style"]},
+                    "rule":          {"type": "string"},
+                    "description":   {"type": "string"},
+                    "fix":           {"type": "string"},
+                },
+                "required": ["line_number", "severity", "rule", "description", "fix"],
+            },
+        },
+    },
+    "required": ["reasoning_scratchpad", "vulnerabilities"],
+}
+
 DOMAIN_TO_EXPERT = {
     "RTOS":    "rtos_expert.md",
     "ISR":     "rtos_expert.md",
@@ -44,23 +68,32 @@ def _load(filename: str) -> str:
     return (PROMPTS_DIR / filename).read_text(encoding="utf-8")
 
 
-def _parse_json_response(text: str) -> dict:
-    """Strip markdown fences if present, then parse JSON."""
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1])
-    return json.loads(text)
+def _generate(
+    client: genai.Client,
+    model: str,
+    system: str,
+    user: str,
+    max_tokens: int,
+    response_schema: dict | None = None,
+) -> str:
+    """Single Gemini API call, returns response text.
 
+    When response_schema is provided the API enforces JSON mode at the model
+    level — the response is guaranteed to be valid JSON matching the schema,
+    so no markdown fence stripping or JSONDecodeError handling is needed.
+    """
+    config_kwargs: dict = dict(
+        system_instruction=system,
+        max_output_tokens=max_tokens,
+        temperature=0.2,  # low temperature for deterministic code review
+    )
+    if response_schema is not None:
+        config_kwargs["response_mime_type"] = "application/json"
+        config_kwargs["response_schema"] = response_schema
 
-def _generate(client: genai.Client, model: str, system: str, user: str, max_tokens: int) -> str:
-    """Single Gemini API call, returns response text."""
     response = client.models.generate_content(
         model=model,
-        config=types.GenerateContentConfig(
-            system_instruction=system,
-            max_output_tokens=max_tokens,
-        ),
+        config=types.GenerateContentConfig(**config_kwargs),
         contents=user,
     )
     return response.text
@@ -73,7 +106,9 @@ def route(client: genai.Client, code: str) -> list[str]:
         ROUTER_MODEL,
         _load("router.md"),
         f"```c\n{code}\n```",
-        128,
+        max_tokens=128,
+        # No schema: router outputs a bare JSON array ["RTOS", "ISR"].
+        # Keep a fallback in case the model adds prose despite instructions.
     ).strip()
     try:
         return [d.upper() for d in json.loads(text)]
@@ -88,12 +123,14 @@ def expert_review(client: genai.Client, expert_file: str, code: str) -> list[dic
         EXPERT_MODEL,
         _load(expert_file),
         f"Review this firmware:\n\n```c\n{code}\n```",
-        2048,
+        max_tokens=2048,
+        response_schema=EXPERT_SCHEMA,  # API-level JSON enforcement — no parse errors
     )
+    # With JSON mode the response is always valid JSON — json.loads is safe.
+    # KeyError guard retained in case the model omits the vulnerabilities key.
     try:
-        result = _parse_json_response(text)
-        return result.get("vulnerabilities", [])
-    except (json.JSONDecodeError, KeyError):
+        return json.loads(text).get("vulnerabilities", [])
+    except (json.JSONDecodeError, KeyError, AttributeError):
         return []
 
 
