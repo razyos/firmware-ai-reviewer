@@ -69,17 +69,19 @@ EXPERT_SCHEMA = {
 }
 
 DOMAIN_TO_EXPERT = {
-    "RTOS":     "rtos_expert.md",
-    "ISR":      "rtos_expert.md",
-    "BLE":      "rtos_expert.md",   # RF callbacks run at ISR priority — enforce RTOS/ISR rules
-    "DMA":      "hardware_expert.md",
-    "I2C":      "hardware_expert.md",
-    "SPI":      "hardware_expert.md",
-    "MEMORY":   "memory_expert.md",
-    "POINTER":  "memory_expert.md",
-    "SECURITY": "memory_expert.md", # Key zeroization, packed key structs — MEM-005/007 apply
-    "POWER":    "power_expert.md",
-    "SAFETY":   "power_expert.md",
+    "RTOS":    "rtos_expert.md",
+    "ISR":     "rtos_expert.md",
+    "BLE":     "rtos_expert.md",   # RF callbacks run at ISR priority — enforce RTOS/ISR rules
+    "DMA":     "hardware_expert.md",
+    "I2C":     "hardware_expert.md",
+    "SPI":     "hardware_expert.md",
+    "MEMORY":  "memory_expert.md",
+    "POINTER": "memory_expert.md",
+    # SECURITY intentionally omitted — security_expert.md not yet created.
+    # Routing to memory_expert would silently drop all crypto/key bugs (no matching rules).
+    # TODO: create security_expert.md, then add: "SECURITY": "security_expert.md"
+    "POWER":   "power_expert.md",
+    "SAFETY":  "power_expert.md",
 }
 
 
