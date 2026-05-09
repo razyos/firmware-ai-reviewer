@@ -105,7 +105,7 @@ def _generate(
     config_kwargs: dict = dict(
         system_instruction=system,
         max_output_tokens=max_tokens,
-        temperature=0.2,
+        temperature=0.0,
         thinking_config=types.ThinkingConfig(thinking_budget=0),
     )
     if response_schema is not None:
