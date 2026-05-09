@@ -8,18 +8,20 @@ Portfolio project demonstrating AI engineering applied to embedded systems.
 
 ## Current State (as of last session)
 
-- **Eval suite:** 6/6 passing on main — deterministic at temperature=0.0
+- **Eval suite:** 6/6 passing on main — deterministic at temperature=0.0, 0 FP warnings
 - **Billing:** enabled on Google Cloud; $10 spend cap set
 - **Models:** `gemini-2.5-flash` for both router and expert (2.5 Pro returns 503 under high demand — revisit later)
 - **Rate limiter:** configurable via `RATE_LIMIT_INTERVAL` in `.env` — default 1.0s (paid tier)
 - **Temperature:** 0.0 (greedy decoding) — deterministic, no eval flakiness
 - **Thinking tokens:** disabled (`thinking_budget=0`) — no cost, no benefit for structured JSON output
-- **Router:** requires evidence before including a domain — no over-classification
-- **Prompt engineering (L8):** all 4 branches merged — few-shot examples, false-positive suppression, structured reasoning steps, router 3rd example
+- **Router:** requires evidence before including a domain; 9 domains (RTOS, ISR, DMA, MEMORY, POINTER, I2C, SPI, POWER, SAFETY) — **UART, BLE/RF, SECURITY/CRYPTO missing**
+- **Prompt engineering (L8):** all gaps addressed — few-shot examples, near-miss examples (§4.4), false-positive suppression, structured reasoning steps, RTOS-001 evidence requirement
 - **Header context injection:** implemented — `_build_context()` prepends local `#include "..."` headers as labelled blocks; line numbers preserved; `"headers"` field in output JSON; proven by eval file 06 (MEM-005 only visible via header)
-- **Model profiles:** `APP_ENV=dev` (flash-lite router + flash expert) / `APP_ENV=demo` (flash router + 2.5-pro expert); `gemini-2.0-flash` deprecated for new users
-- **README:** updated to reflect Gemini models, 6/6 eval, header injection, dev/demo profiles
-- **Next focus:** triage Gemini's architectural critique (see session start instructions below), then continue with new eval files
+- **Model profiles:** `APP_ENV=dev` (flash-lite router + flash expert) / `APP_ENV=demo` (flash router + 2.5-pro expert)
+- **Robustness fixes (PRs #21, #22):** path traversal guard, safety block crash fix, MAX_TOKENS truncation warning, block comment include stripping, redundant I/O eliminated
+- **Expected rules corrected:** file 02 now expects MEM-002 (co-violation with MEM-001); file 06 now expects HW-002 (packed struct 1-byte alignment + DMA)
+- **challenge_prompt.md:** L8 scoring challenge document for adversarial LLM review (PR #23)
+- **Next focus:** router expansion — add UART, BLE/RF, SECURITY/CRYPTO domains with new expert prompts
 
 ## Architecture (4 phases)
 
@@ -55,11 +57,11 @@ prompts/
   power_expert.md                  — rules PWR-001..005, SAF-001..002
 eval_suite/
   01_isr_nonfromisr_api.c          — bugs: ISR-001, ISR-002
-  02_volatile_missing.c            — bugs: MEM-001, MEM-003
+  02_volatile_missing.c            — bugs: MEM-001, MEM-002, MEM-003
   03_dma_stack_buffer.c            — bugs: HW-001, HW-003
   04_rmw_race.c                    — bugs: MEM-004, RTOS-003
   05_callback_context.c            — bugs: ISR-001, ISR-002
-  06_packed_struct_dma.c           — bugs: MEM-005 (requires sensor_types.h)
+  06_packed_struct_dma.c           — bugs: MEM-005, HW-002 (requires sensor_types.h)
   sensor_types.h                   — header with packed struct definition for file 06
   expected/
     01_isr_nonfromisr_api.json     — ground-truth expected_rules
@@ -166,18 +168,29 @@ I'm continuing work on the firmware-ai-reviewer portfolio project at
 Step 1 — verify green baseline:
   python reviewer.py --eval   # must be 6/6 before starting
 
-Step 2 — paste Gemini's architectural critique here.
-  I challenged Gemini in the web with reviewer.py + rtos_expert.md and asked it
-  to find flaws in three categories: Reliability, Scalability, Eval validity.
-  Paste the full response and we will triage together:
-    - Real design mistakes → implement as fix/* branches
-    - Valid MVP trade-offs → note them for interview talking points
-    - Wrong/irrelevant → discard
+Step 2 — router expansion (current priority):
+  The router only knows 9 domains. Three are missing for CC2652R7 firmware:
+    UART    — UART peripheral, FIFO, baud rate, DMA-UART interaction
+    BLE     — RF Core callbacks (run at high priority like ISRs), RF_postCmd,
+              power constraints during RF operations, RF driver state machine
+    SECURITY — Hardware crypto (AES, SHA2, PKA, TRNG), CryptoKey API,
+               secure key zeroization, RNG seeding, timing-attack surfaces
 
-Step 3 — if no Gemini critique yet, continue with next backlog items:
+  For each new domain the full chain is:
+    a) Add label + description to prompts/router.md
+    b) Create prompts/uart_expert.md (or ble_expert.md / security_expert.md)
+       with: role, REPORTING THRESHOLD, HARD RULES, EXAMPLE, NEAR-MISS EXAMPLE,
+       HOW TO REASON, OUTPUT SCHEMA
+    c) Add mapping in DOMAIN_TO_EXPERT dict in reviewer.py
+    d) Create eval_suite/NN_name.c with planted bugs
+    e) Create eval_suite/expected/NN_name.json
+    f) Run --eval; score must be N+1/N+1
+
+Step 3 — after router expansion, continue with existing backlog:
   - Add PWR eval file (PWR-001 + PWR-003)
   - Add HW-002 eval file
   - Add RTOS-001 eval file
+  - Add ISR-003 eval file
 ```
 
 ## Branching Strategy
@@ -234,16 +247,24 @@ Priority order — pick the next unchecked item each session:
 
 - [x] **Verify full 5/5 eval** — confirmed 5/5 with billing enabled
 - [x] **Enable billing** — done; $10 cap set
-- [x] **Prompt engineering (L8)** — all 4 branches merged (few-shot examples, false-positive suppression, structured reasoning, router 3rd example)
+- [x] **Prompt engineering (L8)** — all gaps addressed: few-shot examples, near-miss examples (§4.4), false-positive suppression, structured reasoning, RTOS-001 evidence requirement
 - [x] **Router over-classification fix** — requires evidence before including domain
 - [x] **Thinking tokens disabled** — `thinking_budget=0` on all calls
 - [x] **Temperature → 0.0** — deterministic eval, eliminated MEM-003 flakiness
 - [x] **Configurable rate limit** — `RATE_LIMIT_INTERVAL` env var, default 1.0s
 - [x] **Header context injection** — `_build_context()` in reviewer.py; eval file 06 proves it
 - [x] **Model profiles** — `APP_ENV=dev/demo` in `.env`; README updated
-- [ ] **Switch to `gemini-2.5-pro`** — returns 503 under high demand currently; retry in a future session; set `EXPERT_MODEL=gemini-2.5-pro` in `.env` when available
+- [x] **Robustness fixes** — path traversal, safety block crash, MAX_TOKENS truncation, block comment includes, redundant I/O (PRs #21, #22)
+- [x] **False positive elimination** — near-miss examples in all 4 experts; 0 FP warnings on 6/6 eval
+- [ ] **Switch to `gemini-2.5-pro`** — returns 503 under high demand currently; retry in a future session
 
-### New Eval Coverage
+### Router Expansion (next priority)
+
+- [ ] **Add UART domain** — router label + `uart_expert.md` (rules: FIFO overflow, baud rate misconfiguration, DMA-UART buffer reuse before TX complete, blocking UART in ISR context) + eval file
+- [ ] **Add BLE/RF domain** — router label + `ble_expert.md` (rules: RF Core callback runs at high priority like ISR — no blocking FreeRTOS calls; RF_postCmd without power constraint; RF handle not closed before sleep; callback accesses shared data without protection) + eval file
+- [ ] **Add SECURITY domain** — router label + `security_expert.md` (rules: key material not zeroized after use; TRNG not seeded before crypto; AES key left in plaintext SRAM after operation; CryptoKey object reused across operations without reinit; hardcoded key/IV in firmware) + eval file
+
+### New Eval Coverage (existing domains)
 
 - [ ] **Add PWR eval file** — plant PWR-001 (constraint set after DMA start) and PWR-003 (GPT as Standby wakeup); no eval coverage for power rules yet
 - [ ] **Add HW-002 eval file** — unaligned DMA buffer; uint8_t array passed to 32-bit DMA transfer
