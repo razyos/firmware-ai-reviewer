@@ -127,3 +127,6 @@ Example — file with DMA and volatile register access:
 
 Example — file with a FreeRTOS task, an ISR handler, and a shared volatile variable:
 ["RTOS", "ISR", "MEMORY"]
+
+Example — file with RTOS tasks, ClockP SWI callback, I2C transactions, and power constraints:
+["RTOS", "ISR", "I2C", "POWER"]

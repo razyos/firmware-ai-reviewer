@@ -14,14 +14,15 @@ Portfolio project demonstrating AI engineering applied to embedded systems.
 - **Rate limiter:** configurable via `RATE_LIMIT_INTERVAL` in `.env` — default 1.0s (paid tier)
 - **Temperature:** 0.0 (greedy decoding) — deterministic, no eval flakiness
 - **Thinking tokens:** disabled (`thinking_budget=0`) — no cost, no benefit for structured JSON output
-- **Router:** requires evidence before including a domain; 9 domains (RTOS, ISR, DMA, MEMORY, POINTER, I2C, SPI, POWER, SAFETY) — **UART, BLE/RF, SECURITY/CRYPTO missing**
-- **Prompt engineering (L8):** all gaps addressed — few-shot examples, near-miss examples (§4.4), false-positive suppression, structured reasoning steps, RTOS-001 evidence requirement
-- **Header context injection:** implemented — `_build_context()` prepends local `#include "..."` headers as labelled blocks; line numbers preserved; `"headers"` field in output JSON; proven by eval file 06 (MEM-005 only visible via header)
+- **Router:** 12 domains (RTOS, ISR, DMA, MEMORY, POINTER, I2C, SPI, POWER, SAFETY, UART, BLE, SECURITY) — hardened over 7 rounds of adversarial red-team challenge prompts (PRs #27–#44)
+- **DOMAIN_TO_EXPERT:** `dict[str, list[str]]` (1-to-many) — ISR/BLE→rtos_expert; DMA/I2C/SPI→hardware_expert; MEMORY/POINTER→memory_expert; POWER/SAFETY→power_expert; UART/SECURITY→unmapped (experts TBD)
+- **Fallback fix:** `if not expert_files and not domains` — only fires on classification failure, NOT on unmapped domains (prevents all-expert false positives for SECURITY/UART files)
+- **Prompt engineering (L8):** all gaps addressed — few-shot + near-miss examples (§4.4) in all 4 experts, 4 router examples covering 2/2/3/4-domain cases, invocation-based `#define` rules, sizeof() qualification
+- **Header context injection:** implemented — `_build_context()` prepends local `#include "..."` headers; line numbers preserved; proven by eval file 06
 - **Model profiles:** `APP_ENV=dev` (flash-lite router + flash expert) / `APP_ENV=demo` (flash router + 2.5-pro expert)
-- **Robustness fixes (PRs #21, #22):** path traversal guard, safety block crash fix, MAX_TOKENS truncation warning, block comment include stripping, redundant I/O eliminated
-- **Expected rules corrected:** file 02 now expects MEM-002 (co-violation with MEM-001); file 06 now expects HW-002 (packed struct 1-byte alignment + DMA)
-- **challenge_prompt.md:** L8 scoring challenge document for adversarial LLM review (PR #23)
-- **Next focus:** router expansion — add UART, BLE/RF, SECURITY/CRYPTO domains with new expert prompts
+- **Robustness fixes (PRs #21, #22):** path traversal guard, safety block crash fix, MAX_TOKENS truncation warning, block comment include stripping
+- **Challenge protocol:** mandatory 4-step audit before implementing any LLM challenge response (see Challenge Response Audit Protocol section)
+- **Next priority: `security_expert.md`** — SECURITY domain fires in router but has zero expert coverage and no fallback; crypto files get no analysis
 
 ## Architecture (4 phases)
 
@@ -194,25 +195,36 @@ I'm continuing work on the firmware-ai-reviewer portfolio project at
 Step 1 — verify green baseline:
   python reviewer.py --eval   # must be 6/6 before starting
 
-Step 2 — router expansion (current priority):
-  The router only knows 9 domains. Three are missing for CC2652R7 firmware:
-    UART    — UART peripheral, FIFO, baud rate, DMA-UART interaction
-    BLE     — RF Core callbacks (run at high priority like ISRs), RF_postCmd,
-              power constraints during RF operations, RF driver state machine
-    SECURITY — Hardware crypto (AES, SHA2, PKA, TRNG), CryptoKey API,
-               secure key zeroization, RNG seeding, timing-attack surfaces
+Step 2 — create security_expert.md (highest priority):
+  SECURITY domain already fires in the router. Zero expert coverage exists.
+  A crypto file routes to SECURITY but no expert runs — silent gap.
 
-  For each new domain the full chain is:
-    a) Add label + description to prompts/router.md
-    b) Create prompts/uart_expert.md (or ble_expert.md / security_expert.md)
-       with: role, REPORTING THRESHOLD, HARD RULES, EXAMPLE, NEAR-MISS EXAMPLE,
-       HOW TO REASON, OUTPUT SCHEMA
-    c) Add mapping in DOMAIN_TO_EXPERT dict in reviewer.py
-    d) Create eval_suite/NN_name.c with planted bugs
-    e) Create eval_suite/expected/NN_name.json
-    f) Run --eval; score must be N+1/N+1
+  Full chain for security_expert.md:
+    a) Create prompts/security_expert.md
+       Rules to implement (starter set):
+         SEC-001: Key material not zeroized after use (CryptoUtils_memset missing)
+         SEC-002: TRNG not seeded / not opened before first crypto operation
+         SEC-003: Hardcoded key or IV literal in firmware image
+         SEC-004: CryptoKey object reused across operations without reinit
+         SEC-005: AES key left in plaintext SRAM after operation completes
+       Apply all L8 concepts: role, threshold, HARD RULES, EXAMPLE,
+       NEAR-MISS EXAMPLE, HOW TO REASON, OUTPUT SCHEMA
+    b) Add "SECURITY": ["security_expert.md"] to DOMAIN_TO_EXPERT in reviewer.py
+    c) Create eval_suite/07_crypto_key_leak.c with planted SEC-001 + SEC-003
+    d) Create eval_suite/expected/07_crypto_key_leak.json
+    e) Run --eval; score must be 7/7
 
-Step 3 — after router expansion, continue with existing backlog:
+Step 3 — create uart_expert.md:
+  UART domain fires in router. Zero expert coverage exists.
+  Same full chain:
+    a) Create prompts/uart_expert.md
+       Rules: FIFO overflow (no UARTFIFOEnable), baud rate miscalculation,
+              DMA-UART buffer reuse before TX complete, blocking UART in ISR
+    b) Add "UART": ["uart_expert.md"] to DOMAIN_TO_EXPERT
+    c) Create eval file + expected JSON
+    d) Run --eval; score must be N+1/N+1
+
+Step 4 — after expert coverage complete, continue existing backlog:
   - Add PWR eval file (PWR-001 + PWR-003)
   - Add HW-002 eval file
   - Add RTOS-001 eval file
@@ -284,11 +296,16 @@ Priority order — pick the next unchecked item each session:
 - [x] **False positive elimination** — near-miss examples in all 4 experts; 0 FP warnings on 6/6 eval
 - [ ] **Switch to `gemini-2.5-pro`** — returns 503 under high demand currently; retry in a future session
 
-### Router Expansion (next priority)
+### Router Expansion
 
-- [ ] **Add UART domain** — router label + `uart_expert.md` (rules: FIFO overflow, baud rate misconfiguration, DMA-UART buffer reuse before TX complete, blocking UART in ISR context) + eval file
-- [ ] **Add BLE/RF domain** — router label + `ble_expert.md` (rules: RF Core callback runs at high priority like ISR — no blocking FreeRTOS calls; RF_postCmd without power constraint; RF handle not closed before sleep; callback accesses shared data without protection) + eval file
-- [ ] **Add SECURITY domain** — router label + `security_expert.md` (rules: key material not zeroized after use; TRNG not seeded before crypto; AES key left in plaintext SRAM after operation; CryptoKey object reused across operations without reinit; hardcoded key/IV in firmware) + eval file
+- [x] **Add UART domain** — router label done (PR #27–#44 adversarial hardening); `uart_expert.md` still needed
+- [x] **Add BLE/RF domain** — router label done; routes to `rtos_expert.md` for ISR/callback rules (RF callbacks run at ISR priority); `ble_expert.md` not yet created
+- [x] **Add SECURITY domain** — router label done; `security_expert.md` not yet created — **NEXT PRIORITY** (silent gap: crypto files get zero expert analysis)
+
+### Expert Coverage Gaps (next priority after router)
+
+- [ ] **`security_expert.md`** — SECURITY domain fires but has no expert; crypto files silently unanalyzed; rules: SEC-001 key not zeroized, SEC-002 TRNG not seeded, SEC-003 hardcoded key/IV, SEC-004 CryptoKey reuse, SEC-005 key in plaintext SRAM
+- [ ] **`uart_expert.md`** — UART domain fires but has no expert; rules: FIFO overflow, baud rate misconfiguration, DMA-UART buffer reuse before TX complete, blocking UART in ISR context
 
 ### New Eval Coverage (existing domains)
 
@@ -330,7 +347,8 @@ routing). Catching this at audit time is cheaper than reverting after a failing 
 
 Every prompt or expert file created in this project — and any other project — MUST apply
 all of the following concepts. When generating a prompt, list which concepts were applied
-at the top as a comment block or in your response to the user.
+in your response to the user — NOT as a comment block inside the prompt file itself.
+(Comment blocks in prompt files inject noise into the model's context window.)
 
 ### Required Concepts Checklist
 
@@ -377,19 +395,12 @@ Applied against `~/ai_course/Lecture8/lecture8a-guide.md`. Use this when working
 - Negative format constraints: "No prose. No markdown." ✓
 - Eval suite as regression harness before every merge (L8 §7.1-7.5) ✓
 
-### Gaps to address (ordered by impact)
+### Gaps — all closed as of session 7
 
-**Gap 1 — No content-quality few-shot examples in expert prompts** (L8 §4.7)
-Rules are described in text only. L8 §4.7: when format is API-enforced, add examples to demonstrate *reasoning quality*, not schema shape. One example per expert file showing: what a correct `reasoning_scratchpad` walk-through looks like + one correctly identified violation with rule ID and fix.
-
-**Gap 2 — No false-positive suppression constraint** (L8 §2.6)
-Experts have "Your ONLY job is to find bugs" but no explicit threshold for confidence. Add: "Do not report a finding unless you can quote the exact line and cite the specific rule ID. If uncertain, omit it." Reduces noise in findings.
-
-**Gap 3 — HOW TO REASON is prose, not procedure** (L8 §2.5)
-`rtos_expert.md` has the right template: "I see X. I check rule Y. Conclusion: Z." The other three experts have vaguer prose. Convert all to the same numbered checklist format.
-
-**Gap 4 — Router has only 2-domain examples** (L8 §4.4)
-Representative examples should cover the distribution. 9 labels, 2 examples — add one 3-domain case (e.g., RTOS + ISR + MEMORY) to show the model it can return more than 2 labels.
+- **Gap 1 — Few-shot examples** (L8 §4.7): Closed — all 4 experts have a full worked EXAMPLE section showing correct `reasoning_scratchpad` walk-through.
+- **Gap 2 — False-positive suppression** (L8 §2.6): Closed — all experts have a REPORTING THRESHOLD section with explicit confidence requirement.
+- **Gap 3 — HOW TO REASON format** (L8 §2.5): Closed — all experts use "I see X. I check rule Y. Conclusion: Z." template.
+- **Gap 4 — Router multi-domain examples** (L8 §4.4): Closed — router now has 4 examples covering 2-, 2-, 3-, and 4-domain cases.
 
 ## Key Design Decisions
 
