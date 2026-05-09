@@ -1,0 +1,4 @@
+{
+  "description": "AES-CCM encrypt with hardcoded IV literal (SEC-003) and key material not zeroized after operation (SEC-001).",
+  "expected_rules": ["SEC-001", "SEC-003"]
+}

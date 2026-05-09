@@ -81,8 +81,7 @@ DOMAIN_TO_EXPERT: dict[str, list[str]] = {
     "SPI":     ["hardware_expert.md"],
     "MEMORY":  ["memory_expert.md"],
     "POINTER": ["memory_expert.md"],
-    # SECURITY intentionally omitted — security_expert.md not yet created.
-    # TODO: add "SECURITY": ["security_expert.md"] once that expert exists.
+    "SECURITY": ["security_expert.md"],
     "POWER":   ["power_expert.md"],
     "SAFETY":  ["power_expert.md"],
 }
