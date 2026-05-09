@@ -304,6 +304,28 @@ Priority order — pick the next unchecked item each session:
 - [ ] **CI workflow** — `.github/workflows/eval.yml`: run `--eval` on every push, fail if score < 5/5
 - [ ] **`--stats` flag** — table of rule IDs caught vs missed across all eval files; identifies which prompt needs tuning
 
+## Challenge Response Audit Protocol (Mandatory)
+
+When the user pastes a red-team / adversarial challenge response from another LLM,
+do NOT implement the findings immediately. Follow this 4-step protocol first:
+
+1. **Audit** — For each finding, verify the failure path against the actual prompt text.
+   Confirm the prompt does not already address it via a rule the other LLM overlooked.
+
+2. **Run the challenge yourself** — Independently work through every attack surface
+   using the current prompt text. State your own conclusion (fires / does not fire + reason).
+
+3. **Compare** — "Other LLM says X, I find Y — agree/disagree because Z."
+   Where you disagree, your own analysis takes precedence unless the other LLM reveals
+   something genuinely missed.
+
+4. **Implement only confirmed findings** — Findings that survive both audits get
+   implemented. Disputed findings are noted as "not implemented — reason" in the PR.
+
+**Why:** Implementing challenge responses wholesale without independent verification has
+caused over-correction regressions (e.g., the `void*` removal that broke FreeRTOS task
+routing). Catching this at audit time is cheaper than reverting after a failing eval.
+
 ## Prompt Engineering Standards (Mandatory)
 
 Every prompt or expert file created in this project — and any other project — MUST apply
