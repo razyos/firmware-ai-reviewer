@@ -1,0 +1,4 @@
+{
+  "description": "Packed struct passed to DMA — bug only visible when header is included. Tests header context injection.",
+  "expected_rules": ["MEM-005"]
+}

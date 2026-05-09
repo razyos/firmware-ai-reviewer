@@ -154,12 +154,39 @@ def expert_review(client: genai.Client, expert_file: str, code: str) -> list[dic
         return []
 
 
+def _build_context(path: Path) -> str:
+    """Assemble source file plus any local headers it includes.
+
+    Scans for #include "..." directives (quoted = local, not system headers)
+    and prepends each found header before the source file.  Line numbers in
+    the source file are preserved because headers are prepended as separate
+    labelled blocks, not inlined.
+    """
+    source = path.read_text(encoding="utf-8")
+    header_dir = path.parent
+
+    import re
+    local_includes = re.findall(r'#include\s+"([^"]+)"', source)
+
+    header_blocks: list[str] = []
+    for name in local_includes:
+        header_path = header_dir / name
+        if header_path.exists():
+            header_blocks.append(
+                f"// ===== {name} =====\n{header_path.read_text(encoding='utf-8')}"
+            )
+
+    if header_blocks:
+        return "\n\n".join(header_blocks) + f"\n\n// ===== {path.name} =====\n{source}"
+    return source
+
+
 def review_file(client: genai.Client, path: Path, verbose: bool = False) -> dict:
     """Full review pipeline for one C file."""
-    code = path.read_text(encoding="utf-8")
+    context = _build_context(path)
 
     # Phase 1: Route
-    domains = route(client, code)
+    domains = route(client, context)
     if verbose:
         print(f"  [router] domains: {domains}", file=sys.stderr)
 
@@ -171,7 +198,7 @@ def review_file(client: genai.Client, path: Path, verbose: bool = False) -> dict
     # Phase 3: Parallel expert reviews
     all_findings: list[dict] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(expert_files)) as pool:
-        futures = {pool.submit(expert_review, client, ef, code): ef for ef in expert_files}
+        futures = {pool.submit(expert_review, client, ef, context): ef for ef in expert_files}
         for future in concurrent.futures.as_completed(futures):
             if verbose:
                 print(f"  [expert] {futures[future]} complete", file=sys.stderr)
@@ -186,7 +213,10 @@ def review_file(client: genai.Client, path: Path, verbose: bool = False) -> dict
             seen.add(key)
             unique.append(finding)
 
-    return {"file": str(path), "domains": domains, "findings": unique}
+    import re
+    headers = [h for h in re.findall(r'#include\s+"([^"]+)"', path.read_text(encoding="utf-8"))
+               if (path.parent / h).exists()]
+    return {"file": str(path), "headers": headers, "domains": domains, "findings": unique}
 
 
 def run_eval(client: genai.Client, verbose: bool = False) -> int:
