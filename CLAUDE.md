@@ -8,15 +8,15 @@ Portfolio project demonstrating AI engineering applied to embedded systems.
 
 ## Current State (as of last session)
 
-- **Eval suite:** 5 files, daily quota (20 req/day free tier) was hit after file 03 — files 01-03 ran and produced findings, 04-05 were not reached
-- **Full 5/5 eval run:** pending — run at start of next session to verify (quota resets daily)
-- **Rate limiter:** 13s between calls — works correctly, prevents 429 burst errors
-- **Router:** fixed to use JSON mode (`response_schema` array type) — was previously falling back to all 9 domains, loading 4 experts per file instead of 2-3
-- **Models:** configurable via `.env` — defaults to `gemini-2.5-flash` for both router and expert
-- **Gemini 3.1 Pro:** confirmed available (`gemini-3.1-pro-preview`) but requires billing enabled on Google Cloud project (free tier limit = 0)
-- **Billing:** not yet enabled — switch to `gemini-2.5-pro` as `EXPERT_MODEL` once billing is on (~$0.11/run, recommended for eval work)
-- **Pricing context:** 2.5 Flash ~$0.03/run, 2.5 Pro ~$0.11/run, 3.1 Pro ~$0.16/run; $10 billing cap = ~90 runs at 2.5 Pro rates
-- **Next focus:** prompt engineering improvements using L8 best practices (4 branches planned — see backlog)
+- **Eval suite:** 5/5 passing on main — verified with billing enabled, deterministic
+- **Billing:** enabled on Google Cloud; $10 spend cap set
+- **Models:** `gemini-2.5-flash` for both router and expert (2.5 Pro returns 503 under high demand — revisit later)
+- **Rate limiter:** now configurable via `RATE_LIMIT_INTERVAL` in `.env` — default 1.0s (paid tier); set 13.0 for free tier
+- **Temperature:** 0.0 (greedy decoding) — eliminated MEM-003 non-determinism that caused ~30% false negatives
+- **Thinking tokens:** disabled (`thinking_budget=0`) — were consuming billed tokens with no quality benefit
+- **Router:** tightened to require evidence before including a domain — fixed over-classification that loaded all 4 experts on single-domain files
+- **Prompt engineering (L8):** all 4 branches merged — few-shot examples, false-positive suppression, structured reasoning steps, router 3rd example
+- **Next focus:** add new eval files (PWR, HW-002, RTOS-001, ISR-003) to expand rule coverage
 
 ## Architecture (4 phases)
 
@@ -203,15 +203,14 @@ git checkout main && git pull origin main
 
 Priority order — pick the next unchecked item each session:
 
-- [ ] **Verify full 5/5 eval** — run `python reviewer.py --eval` at start of next session once daily quota resets; confirm all 5 files pass before starting new work
-- [ ] **Enable billing + switch to 2.5 Pro** — set `EXPERT_MODEL=gemini-2.5-pro` in `.env` after enabling billing on Google Cloud; run eval to confirm score holds; router stays on Flash
-
-### Prompt Engineering (L8 best practices — do in order, one branch each)
-
-- [ ] **`eval/add-expert-few-shot-examples`** — add 1 content-quality few-shot example to each of the 4 expert prompts; example should show a complete `reasoning_scratchpad` entry + one correctly identified violation for a representative rule; since format is API-enforced, examples demonstrate *reasoning quality* not schema shape (L8 §4.7)
-- [ ] **`eval/false-positive-suppression`** — add negative constraint to all 4 expert prompts: "Do not report a violation unless you can identify the exact line number and cite the specific rule ID it violates. If uncertain, omit it." (L8 §2.6)
-- [ ] **`eval/structured-reasoning-steps`** — convert HOW TO REASON sections in memory/hardware/power experts from prose to a numbered checklist matching the rtos_expert.md template: "I see X. I check rule Y. Conclusion: Z." (L8 §2.5)
-- [ ] **`eval/router-add-third-example`** — add one 3-domain example to router.md to demonstrate that 3+ labels can be returned; covers files with RTOS + ISR + MEMORY patterns (L8 §4.4)
+- [x] **Verify full 5/5 eval** — confirmed 5/5 with billing enabled
+- [x] **Enable billing** — done; $10 cap set
+- [x] **Prompt engineering (L8)** — all 4 branches merged (few-shot examples, false-positive suppression, structured reasoning, router 3rd example)
+- [x] **Router over-classification fix** — requires evidence before including domain
+- [x] **Thinking tokens disabled** — `thinking_budget=0` on all calls
+- [x] **Temperature → 0.0** — deterministic eval, eliminated MEM-003 flakiness
+- [x] **Configurable rate limit** — `RATE_LIMIT_INTERVAL` env var, default 1.0s
+- [ ] **Switch to `gemini-2.5-pro`** — returns 503 under high demand currently; retry in a future session; set `EXPERT_MODEL=gemini-2.5-pro` in `.env` when available
 
 ### New Eval Coverage
 
