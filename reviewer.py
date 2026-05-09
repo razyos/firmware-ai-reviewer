@@ -106,6 +106,7 @@ def _generate(
         system_instruction=system,
         max_output_tokens=max_tokens,
         temperature=0.2,
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
     )
     if response_schema is not None:
         config_kwargs["response_mime_type"] = "application/json"
