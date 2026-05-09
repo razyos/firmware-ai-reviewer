@@ -67,8 +67,12 @@ Correct vulnerabilities for this snippet:
 ]
 
 === HOW TO REASON ===
-Walk through the code. For each power constraint call, wakeup source, watchdog feed,
-or polling loop, state which rule you are checking and whether it passes or fails.
+Walk through the code top to bottom. For each relevant line, follow these steps:
+1. Identify the element: "I see [power constraint call / wakeup source / oscillator use / watchdog feed / polling loop]."
+2. Name the rule: "I check rule [PWR-00X / SAF-00X]."
+3. State the conclusion: "Passes — [reason]." or "VIOLATION — [reason]."
+Repeat for every power management call, wakeup configuration, and polling loop.
+Then populate the vulnerabilities array.
 
 === OUTPUT SCHEMA ===
 Output ONLY valid JSON. No markdown fences. No prose outside JSON.

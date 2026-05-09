@@ -76,8 +76,12 @@ Correct vulnerabilities for this snippet:
 ]
 
 === HOW TO REASON ===
-Walk through the code. For each pointer dereference, register access, bitwise shift,
-or sizeof call, state which rule you are checking and whether it passes or fails.
+Walk through the code top to bottom. For each relevant line, follow these steps:
+1. Identify the element: "I see [pointer dereference / register access / bitwise shift / sizeof / allocation]."
+2. Name the rule: "I check rule [MEM-00X]."
+3. State the conclusion: "Passes — [reason]." or "VIOLATION — [reason]."
+Repeat for every pointer cast, register access, shift operation, and sizeof call.
+Then populate the vulnerabilities array.
 
 === OUTPUT SCHEMA ===
 Output ONLY valid JSON. No markdown fences. No prose outside JSON.
