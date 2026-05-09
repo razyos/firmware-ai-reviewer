@@ -17,15 +17,18 @@ import argparse
 import concurrent.futures
 from pathlib import Path
 
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+
+load_dotenv()  # loads .env from the project root if it exists
 
 SCRIPT_DIR  = Path(__file__).parent
 PROMPTS_DIR = SCRIPT_DIR / "prompts"
 EVAL_DIR    = SCRIPT_DIR / "eval_suite"
 
-ROUTER_MODEL = "gemini-2.0-flash"
-EXPERT_MODEL = "gemini-2.5-flash"
+ROUTER_MODEL = "gemini-2.0-flash"   # fast, cheap — correct for classification
+EXPERT_MODEL = "gemini-2.5-flash"   # upgrade to "gemini-2.5-pro" if your key allows it
 
 # JSON schema enforced at the API level for expert calls.
 # Eliminates JSONDecodeError — the model is constrained to output this structure.
