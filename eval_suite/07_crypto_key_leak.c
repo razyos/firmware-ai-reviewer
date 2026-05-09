@@ -1,10 +1,6 @@
 /*
  * eval_suite/07_crypto_key_leak.c
  *
- * Planted bugs:
- *   SEC-001 (line 36): keyMaterial not zeroized after AESCCM_oneStepEncrypt completes
- *   SEC-003 (line 14): hardcoded IV literal passed directly to AESCCM encrypt operation
- *
  * Platform: TI CC2652R7, SimpleLink SDK crypto drivers
  */
 
@@ -14,7 +10,6 @@
 #include "ti/drivers/CryptoKey.h"
 #include "ti/drivers/cryptoutils/cryptoutils.h"
 
-/* BUG SEC-003: hardcoded IV literal visible in the firmware binary */
 static const uint8_t g_iv[7] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
 
 /* Key buffer loaded at runtime from secure storage */
@@ -40,7 +35,7 @@ int encryptSensorPayload(const uint8_t *plaintext, size_t plaintextLen)
     AESCCM_OneStepOperation op;
     AESCCM_OneStepOperation_init(&op);
     op.key            = &cryptoKey;
-    op.nonce          = g_iv;          /* hardcoded IV — SEC-003 */
+    op.nonce          = g_iv;
     op.nonceLength    = sizeof(g_iv);
     op.input          = plaintext;
     op.inputLength    = plaintextLen;
@@ -48,15 +43,13 @@ int encryptSensorPayload(const uint8_t *plaintext, size_t plaintextLen)
     op.mac            = g_tag;
     op.macLength      = sizeof(g_tag);
 
-    /* BUG SEC-001: g_keyMaterial not zeroized after this call */
-    int ret = AESCCM_oneStepEncrypt(handle, &op);   /* line 36 */
+    int ret = AESCCM_oneStepEncrypt(handle, &op);
 
-    /* cipherOut is consumed here and zeroized — SEC-005 does not apply */
     transmitOverBLE(g_cipherOut, plaintextLen + sizeof(g_tag));
     CryptoUtils_memset(g_cipherOut, 0, sizeof(g_cipherOut));
+    CryptoUtils_memset(g_tag, 0, sizeof(g_tag));
 
     AESCCM_close(handle);
 
-    /* g_keyMaterial still contains key bytes — never cleared */
     return ret;
 }

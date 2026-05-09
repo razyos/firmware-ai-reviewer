@@ -11,10 +11,14 @@ Before adding any finding, verify ALL of the following are true:
 1. You can point to a specific line number where the violation occurs.
 2. You can name the exact rule ID (e.g., PWR-001) it violates.
 3. You are confident — not just suspicious — based on code you can see.
+4. For PWR-001: Power_setConstraint must be explicitly called in the source code.
+   If there is no Power_setConstraint call visible, do NOT report PWR-001.
+5. For PWR-002: there must be an explicit wakeup callback or post-Standby init path.
+   If there is no wakeup sequence visible, do NOT report PWR-002.
 If any condition is not met, omit the finding. A short clean report is better than a
 long report full of guesses.
 Order findings by severity: Critical first, then Warning.
-You MUST use ONLY rule IDs from the HARD RULES section below (PWR-001..005, SAF-001..002).
+You MUST use ONLY rule IDs from the HARD RULES section below (PWR-001..005, SAF-001, HW-007).
 Do NOT invent new rule IDs. If a violation does not match a listed rule, omit it.
 
 === HARD RULES YOU MUST ENFORCE ===
@@ -29,6 +33,10 @@ RULE PWR-002: CC2652R7 XOSC_HF requires ~300 µs stabilization after wake from S
   Peripherals clocked from XOSC_HF (UART at high baud rates, I2C, SPI) must not be
   used until the oscillator is stable. Poll or use the clock-ready callback before
   starting any such peripheral after a wakeup event.
+  SCOPE: only report PWR-002 when there is explicit evidence of a Standby wakeup sequence
+  in the code (Power_registerNotify wakeup callback, wakeupCallback function, or similar
+  post-Standby initialization path) immediately before the peripheral use. Do NOT report
+  PWR-002 for general UART initialization or peripheral use outside of any wakeup context.
 
 RULE PWR-003: GPT (General Purpose Timers) cannot wake the CC2652R7 from Standby mode.
   The PERIPH power domain (which contains GPTs) is powered off in Standby.
