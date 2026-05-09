@@ -13,6 +13,8 @@ Architecture:
 import os
 import sys
 import json
+import time
+import threading
 import argparse
 import concurrent.futures
 from pathlib import Path
@@ -23,12 +25,18 @@ from google.genai import types
 
 load_dotenv()  # loads .env from the project root if it exists
 
+# Rate limiter — free tier cap is 5 RPM for gemini-2.5-flash.
+# Enforce a minimum 13-second gap between any two API calls (= 4.6 calls/min).
+_rate_lock = threading.Lock()
+_last_call_time: float = 0.0
+_MIN_CALL_INTERVAL = 13.0  # seconds
+
 SCRIPT_DIR  = Path(__file__).parent
 PROMPTS_DIR = SCRIPT_DIR / "prompts"
 EVAL_DIR    = SCRIPT_DIR / "eval_suite"
 
-ROUTER_MODEL = "gemini-2.0-flash"   # fast, cheap — correct for classification
-EXPERT_MODEL = "gemini-2.5-flash"   # upgrade to "gemini-2.5-pro" if your key allows it
+ROUTER_MODEL = "gemini-2.5-flash"   # fast classification
+EXPERT_MODEL = "gemini-2.5-flash"   # upgrade to "gemini-3.1-pro-preview" if quota allows
 
 # JSON schema enforced at the API level for expert calls.
 # Eliminates JSONDecodeError — the model is constrained to output this structure.
@@ -79,16 +87,25 @@ def _generate(
     max_tokens: int,
     response_schema: dict | None = None,
 ) -> str:
-    """Single Gemini API call, returns response text.
+    """Single Gemini API call with rate limiting.
+
+    Enforces _MIN_CALL_INTERVAL between calls globally so parallel
+    ThreadPoolExecutor threads don't burst past the free-tier RPM cap.
 
     When response_schema is provided the API enforces JSON mode at the model
-    level — the response is guaranteed to be valid JSON matching the schema,
-    so no markdown fence stripping or JSONDecodeError handling is needed.
+    level — the response is guaranteed to be valid JSON matching the schema.
     """
+    global _last_call_time
+    with _rate_lock:
+        wait = _MIN_CALL_INTERVAL - (time.monotonic() - _last_call_time)
+        if wait > 0:
+            time.sleep(wait)
+        _last_call_time = time.monotonic()
+
     config_kwargs: dict = dict(
         system_instruction=system,
         max_output_tokens=max_tokens,
-        temperature=0.2,  # low temperature for deterministic code review
+        temperature=0.2,
     )
     if response_schema is not None:
         config_kwargs["response_mime_type"] = "application/json"
@@ -110,8 +127,7 @@ def route(client: genai.Client, code: str) -> list[str]:
         _load("router.md"),
         f"```c\n{code}\n```",
         max_tokens=128,
-        # No schema: router outputs a bare JSON array ["RTOS", "ISR"].
-        # Keep a fallback in case the model adds prose despite instructions.
+        response_schema={"type": "array", "items": {"type": "string"}},
     ).strip()
     try:
         return [d.upper() for d in json.loads(text)]
@@ -191,19 +207,29 @@ def run_eval(client: genai.Client, verbose: bool = False) -> int:
         expected_rules = set(json.loads(expected_file.read_text()).get("expected_rules", []))
         print(f"  [eval] {c_file.name}...", file=sys.stderr)
 
-        report = review_file(client, c_file, verbose=verbose)
-        found_rules = {f["rule"] for f in report["findings"]}
-
-        caught = expected_rules & found_rules
-        missed = expected_rules - found_rules
-
-        results.append({
-            "file":     c_file.name,
-            "passed":   len(missed) == 0,
-            "expected": sorted(expected_rules),
-            "caught":   sorted(caught),
-            "missed":   sorted(missed),
-        })
+        try:
+            report = review_file(client, c_file, verbose=verbose)
+            found_rules = {f["rule"] for f in report["findings"]}
+            caught = expected_rules & found_rules
+            missed = expected_rules - found_rules
+            results.append({
+                "file":    c_file.name,
+                "passed":  len(missed) == 0,
+                "expected": sorted(expected_rules),
+                "caught":  sorted(caught),
+                "missed":  sorted(missed),
+                "error":   None,
+            })
+        except Exception as e:
+            print(f"  [error] {c_file.name}: {e}", file=sys.stderr)
+            results.append({
+                "file":    c_file.name,
+                "passed":  False,
+                "expected": sorted(expected_rules),
+                "caught":  [],
+                "missed":  sorted(expected_rules),
+                "error":   str(e)[:120],
+            })
 
     total  = len(results)
     passed = sum(1 for r in results if r["passed"])
@@ -212,11 +238,17 @@ def run_eval(client: genai.Client, verbose: bool = False) -> int:
     print(f"  Eval Results: {passed}/{total} passed")
     print(f"{'=' * 52}")
     for r in results:
-        color = "\033[32m" if r["passed"] else "\033[31m"
-        status = f"{color}{'PASS' if r['passed'] else 'FAIL'}\033[0m"
+        if r["error"]:
+            status = "\033[33mERROR\033[0m"
+        elif r["passed"]:
+            status = "\033[32mPASS\033[0m"
+        else:
+            status = "\033[31mFAIL\033[0m"
         print(f"  [{status}] {r['file']}")
-        if r["missed"]:
+        if r["missed"] and not r["error"]:
             print(f"         Missed: {r['missed']}")
+        if r["error"]:
+            print(f"         {r['error'][:80]}")
     print(f"{'=' * 52}\n")
 
     return 0 if passed == total else 1
