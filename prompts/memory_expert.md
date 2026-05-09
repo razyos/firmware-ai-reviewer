@@ -88,29 +88,31 @@ Input snippet:
 ```c
 /* Polling loop using HWREG — volatile already guaranteed by the macro */
 void waitForTimerFlag(void) {
-    while (!(HWREG(GPT0_BASE + GPT_O_RIS) & GPT_RIS_TATORIS)) {}  // line 4
+    while (!(HWREG(GPT0_BASE + GPT_O_RIS) & GPT_RIS_TATORIS)) {} // line 4
 }
 
-static volatile bool g_adcReady = false;   // line 7 — volatile, ISR-written
+static volatile bool g_adcReady = false;  // line 7 — volatile, ISR-written
 
-void ADC_IRQHandler(void) {                // line 9 — ISR
-    g_adcReady = true;                     // line 10 — plain assignment
+void ADC_IRQHandler(void) {               // line 9
+    g_adcReady = true;                    // line 10 — plain assignment, not RMW
+}
+
+uint32_t buildWord(uint8_t domain_mask) {
+    return (uint32_t)domain_mask << 8;    // line 14 — explicit cast before shift
 }
 ```
 
 Correct reasoning_scratchpad:
 "Line 4: HWREG(GPT0_BASE + GPT_O_RIS) — check MEM-001: HWREG(x) expands to
-(*(volatile uint32_t *)(x)). The access is already volatile-qualified by the macro.
-MEM-001 does not apply. Check MEM-002: polling loop on hardware flag. HWREG guarantees
-volatility — the optimizer cannot hoist the load. MEM-002 does not apply when HWREG
-is used. Clean.
-Line 7: g_adcReady declared volatile — correct for an ISR-written flag.
+(*(volatile uint32_t *)(x)), already volatile-qualified. MEM-001 does not apply.
+Check MEM-002: polling loop on hardware flag. HWREG guarantees volatility —
+optimizer cannot hoist the load. MEM-002 does not apply when HWREG is used. Clean.
 Line 10: g_adcReady = true — plain assignment to a volatile flag. Check MEM-004:
-MEM-004 applies to READ-MODIFY-WRITE on SHARED PERIPHERAL REGISTERS (e.g. *reg |= MASK).
-A plain assignment to a flag variable is not an RMW on a peripheral register. MEM-004
-does not apply.
-No pointer casts, no narrow-type shifts, no sizeof on array params, no DMA buffers,
-no packed structs. MEM-003, MEM-005, MEM-006, MEM-007, MEM-008: not triggered."
+MEM-004 requires READ-MODIFY-WRITE on a SHARED PERIPHERAL REGISTER (e.g. *reg |= MASK).
+A plain assignment is not RMW. MEM-004 does not apply.
+Line 14: (uint32_t)domain_mask << 8 — check MEM-003: domain_mask is uint8_t.
+The explicit (uint32_t) cast widens the type BEFORE the shift, avoiding signed-int
+promotion. The shift cannot reach the sign bit of uint32_t. MEM-003 does not apply. Clean."
 
 Correct vulnerabilities for this snippet:
 []
