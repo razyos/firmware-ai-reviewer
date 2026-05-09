@@ -149,7 +149,7 @@ def route(client: genai.Client, code: str) -> list[str]:
         client,
         ROUTER_MODEL,
         _load("router.md"),
-        f"```c\n{code}\n```",
+        f"<source_code>\n{code}\n</source_code>",
         max_tokens=128,
         response_schema={"type": "array", "items": {"type": "string"}},
     )
@@ -238,7 +238,7 @@ def review_file(client: genai.Client, path: Path, verbose: bool = False) -> dict
     # Phase 2: Select unique expert files based on detected domains
     expert_files = list({DOMAIN_TO_EXPERT[d] for d in domains if d in DOMAIN_TO_EXPERT})
     if not expert_files:
-        expert_files = ["rtos_expert.md", "memory_expert.md", "hardware_expert.md"]
+        expert_files = ["rtos_expert.md", "memory_expert.md", "hardware_expert.md", "power_expert.md"]
 
     # Phase 3: Parallel expert reviews
     all_findings: list[dict] = []
