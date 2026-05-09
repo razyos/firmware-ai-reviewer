@@ -1,0 +1,4 @@
+{
+  "description": "Non-atomic read-modify-write on shared GPIO DOUT register (ISR can overwrite task's change), and binary semaphore used as mutex (priority inversion — no priority inheritance).",
+  "expected_rules": ["MEM-004", "RTOS-003"]
+}

@@ -1,0 +1,4 @@
+{
+  "description": "Timer polling loop reads MMIO register without volatile (optimizer kills loop at -O2), and uint8_t shift causes integer promotion UB.",
+  "expected_rules": ["MEM-001", "MEM-003"]
+}

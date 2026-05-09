@@ -1,0 +1,4 @@
+{
+  "description": "DMA TX buffer allocated on the stack (dangling pointer after function returns), and CPU reads buffer before DMA transfer completes.",
+  "expected_rules": ["HW-001", "HW-003"]
+}

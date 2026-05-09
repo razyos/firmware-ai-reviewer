@@ -1,0 +1,4 @@
+{
+  "description": "UART ISR calling blocking xQueueSend instead of xQueueSendFromISR, and missing portYIELD_FROM_ISR.",
+  "expected_rules": ["ISR-001", "ISR-002"]
+}

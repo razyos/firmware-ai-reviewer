@@ -1,0 +1,4 @@
+{
+  "description": "I2C completion callback fired from ISR context calls blocking xSemaphoreGive instead of xSemaphoreGiveFromISR, and portYIELD_FROM_ISR is missing.",
+  "expected_rules": ["ISR-001", "ISR-002"]
+}
