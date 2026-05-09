@@ -41,23 +41,25 @@ If you are not certain a domain is present, omit it. Fewer correct labels is bet
 many uncertain ones.
 
 Available domain labels:
-  "RTOS"     — FreeRTOS tasks, queues, semaphores, mutexes, task notifications;
+  "RTOS"     — FreeRTOS tasks, queues, semaphores, mutexes, task notifications,
+               and defensive assertions;
                signals: xTaskCreate(), xTaskCreateStatic(), xQueueSend(), xQueueReceive(),
                xSemaphoreGive(), xSemaphoreTake(), xTaskNotify(), vTaskDelay(),
                vTaskSuspendAll(), xTaskResumeAll(), xSemaphoreCreateBinary(),
-               xSemaphoreCreateMutex()
+               xSemaphoreCreateMutex(), configASSERT()
   "ISR"      — Interrupt handlers registered via NVIC, FreeRTOS, TI-RTOS, or driverlib;
                also includes SWI/software-interrupt contexts (ClockP callbacks run in SWI
                context and have ISR-level restrictions);
                signals grouped by layer:
-                 [Core]      functions named *_IRQHandler, NVIC_SetPriority(),
-                             NVIC_EnableIRQ(), portYIELD_FROM_ISR(), *FromISR() API calls
-                 [TI-RTOS]   HwiP_construct(), HwiP_create(), HwiP_Params_init(),
-                             ClockP_construct(), ClockP_create()
-                 [Driverlib] GPIOIntRegister(), IntRegister(), IntEnable(),
-                             UARTIntRegister(), UARTIntEnable(),
-                             SSIIntRegister(), SSIIntEnable(),
-                             I2CIntRegister(), I2CIntEnable()
+                 Core:      functions named *_IRQHandler, NVIC_SetPriority(),
+                            NVIC_EnableIRQ(), portYIELD_FROM_ISR(), *FromISR() API calls
+                 TI-RTOS:   HwiP_construct(), HwiP_create(), HwiP_Params_init(),
+                            ClockP_construct(), ClockP_create()
+                 Driverlib: GPIOIntRegister(), IntRegister(), IntEnable(),
+                            UARTIntRegister(), UARTIntEnable(),
+                            SSIIntRegister(), SSIIntEnable(),
+                            I2CIntRegister(), I2CIntEnable(),
+                            WatchdogIntRegister()
   "DMA"      — Direct memory access transfers via bare-metal or TI driver abstraction;
                signals: uDMAChannelTransferSet(), uDMAChannelEnable(), uDMAChannelDisable(),
                UDMACC26XX_open(), UDMACC26XX_channelEnable(),
@@ -83,15 +85,17 @@ Available domain labels:
                SSIIntRegister(), SSIIntEnable()
   "POWER"    — Power management, sleep modes, constraints, peripheral clocks, timers;
                signals: Power_setConstraint(), Power_releaseConstraint(),
-               Power_registerNotify(), PRCMPowerDomainOff(), PRCMLoadSet(),
+               Power_registerNotify(), PRCMPowerDomainOff(),
+               PRCMPeripheralRunEnable(), PRCMPeripheralSleepEnable(),
+               PRCMPeripheralDeepSleepEnable(), PRCMLoadSet(), PRCMLoadGet(),
                ClockP_construct(), ClockP_create(), ClockP_Params_init(),
                ClockP_start(), ClockP_stop(), __WFI(),
                TimerConfigure(), TimerLoadSet(), TimerEnable(),
                AONBatMonBatteryVoltageGet(), AONRTCCurrentCompareValueGet()
-  "SAFETY"   — Watchdog timers, fault handlers, MPU, assertions, system resets;
+  "SAFETY"   — Watchdog timers, fault handlers, MPU, system resets;
                signals: WatchdogReloadSet(), WatchdogIntClear(), Watchdog_open(),
                WatchdogCC26X4_init(), HardFault_Handler(), MPU_config(),
-               configASSERT(), WatchdogIntRegister(),
+               WatchdogIntRegister(),
                SysCtrlSystemReset(), SysCtrlDeepSleep(),
                HWREG(WDT
   "UART"     — UART peripheral transmit/receive and setup at any abstraction level;
@@ -113,7 +117,7 @@ Available domain labels:
                TRNG_open(), TRNG_generateEntropy(),
                CryptoKey_initKey(), CryptoKey_initBlankKey(), CryptoUtils_memset(),
                ECDH_open(), ECDSA_open(), PKA_open(), AESCTRdrbg_generate(),
-               CryptoCC26X2_init(), HWREG(CRYPTO_BASE + offset)
+               CryptoCC26X2_init(), HWREG(CRYPTO
 
 Example — file with a FreeRTOS queue and an ISR:
 ["RTOS", "ISR"]
