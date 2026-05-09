@@ -14,9 +14,9 @@
 
 /* TI CC2652R7 GPIO register addresses */
 #define GPIO_BASE          0x40022000UL
-#define GPIO_O_DOUT31_0    0x080UL   /* Data output for DIO 0-31 (RMW required) */
-#define GPIO_O_DOUTSET31_0 0x090UL   /* Atomic set:   write 1 to set bit   */
-#define GPIO_O_DOUTCLR31_0 0x0A0UL   /* Atomic clear: write 1 to clear bit */
+#define GPIO_O_DOUT31_0    0x080UL   /* Data output register, DIO 0-31 */
+#define GPIO_O_DOUTSET31_0 0x090UL   /* DOUTSET31_0 */
+#define GPIO_O_DOUTCLR31_0 0x0A0UL   /* DOUTCLR31_0 */
 
 #define LED_RED_MASK   (1u << 6)   /* DIO6 */
 #define LED_GREEN_MASK (1u << 7)   /* DIO7 */

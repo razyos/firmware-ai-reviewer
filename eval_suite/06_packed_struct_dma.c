@@ -5,14 +5,14 @@
  */
 
 #include <stdint.h>
-#include "sensor_types.h"   /* defines SensorFrame_t — packed struct */
+#include "sensor_types.h"
 
 #include <ti/drivers/dma/UDMACC26XX.h>
 
 #define SENSOR_DMA_CH   4
 #define SENSOR_BASE     0x40090000UL
 
-static SensorFrame_t dmaRxBuf;   /* static — lifetime is not the issue */
+static SensorFrame_t dmaRxBuf;
 
 void Sensor_StartDmaRead(void)
 {
