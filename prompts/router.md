@@ -40,6 +40,10 @@ or signal function name in a macro body that matches that domain's signal list.
 If you are not certain a domain is present, omit it. Fewer correct labels is better than
 many uncertain ones.
 
+Note on HWREG(...) prefix signals: entries written as HWREG(PREFIX...) match any
+HWREG call whose base-address argument begins with that prefix (e.g. HWREG(UART_BASE),
+HWREG(UART0_BASE + offset)). The ... stands for any continuation.
+
 Available domain labels:
   "RTOS"     — FreeRTOS tasks, queues, semaphores, mutexes, task notifications,
                and defensive assertions;
@@ -63,7 +67,7 @@ Available domain labels:
   "DMA"      — Direct memory access transfers via bare-metal or TI driver abstraction;
                signals: uDMAChannelTransferSet(), uDMAChannelEnable(), uDMAChannelDisable(),
                UDMACC26XX_open(), UDMACC26XX_channelEnable(),
-               HWREG(UDMA
+               HWREG(UDMA...)
   "MEMORY"   — Unsafe memory operations: unqualified peripheral register access,
                misaligned pointer casts, integer promotion in shifts, packed structs passed
                to DMA, sizeof() applied to a function parameter (array decay);
@@ -78,7 +82,7 @@ Available domain labels:
   "I2C"      — I2C bus transactions and interrupt setup;
                signals: I2C_open(), I2CXfer(), I2CSend(), I2CReceive(), I2C_transfer(),
                I2CMasterBusBusy(), I2CIntRegister(), I2CIntEnable(),
-               HWREG(I2C
+               HWREG(I2C...)
   "SPI"      — SPI bus transactions and interrupt setup via TI Driver or driverlib;
                signals: SPI_open(), SPI_transfer(), SPITransfer(), SPI_Params_init(),
                SSIDataPut(), SSIDataGet(), SSIConfigSetExpClk(), SSIEnable(),
@@ -97,7 +101,7 @@ Available domain labels:
                WatchdogCC26X4_init(), HardFault_Handler(), MPU_config(),
                WatchdogIntRegister(),
                SysCtrlSystemReset(), SysCtrlDeepSleep(),
-               HWREG(WDT
+               HWREG(WDT...)
   "UART"     — UART peripheral transmit/receive and setup at any abstraction level;
                signals: UART_open(), UART_read(), UART_write(), UART_close(),
                UART_Params_init(),
@@ -105,7 +109,7 @@ Available domain labels:
                UARTprintf(), UARTCharPut(), UARTCharGet(), UARTCharPutNonBlocking(),
                UARTFIFOEnable(), UARTConfigSetExpClk(),
                UARTIntEnable(), UARTIntRegister(),
-               HWREG(UART
+               HWREG(UART...)
   "BLE"      — RF Core driver, BLE command posting, RF callbacks, direct HCI commands;
                signals: RF_open(), RF_postCmd(), RF_runCmd(), RF_pendCmd(), RF_close(),
                rfClientEventCb(), RF_cmdBle5Adv(), RF_cmdBle5Scanner(),
@@ -117,7 +121,7 @@ Available domain labels:
                TRNG_open(), TRNG_generateEntropy(),
                CryptoKey_initKey(), CryptoKey_initBlankKey(), CryptoUtils_memset(),
                ECDH_open(), ECDSA_open(), PKA_open(), AESCTRdrbg_generate(),
-               CryptoCC26X2_init(), HWREG(CRYPTO
+               CryptoCC26X2_init(), HWREG(CRYPTO...)
 
 Example — file with a FreeRTOS queue and an ISR:
 ["RTOS", "ISR"]
