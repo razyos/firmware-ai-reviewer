@@ -14,6 +14,9 @@ Portfolio project demonstrating AI engineering applied to embedded systems.
 - **Router:** fixed to use JSON mode (`response_schema` array type) — was previously falling back to all 9 domains, loading 4 experts per file instead of 2-3
 - **Models:** configurable via `.env` — defaults to `gemini-2.5-flash` for both router and expert
 - **Gemini 3.1 Pro:** confirmed available (`gemini-3.1-pro-preview`) but requires billing enabled on Google Cloud project (free tier limit = 0)
+- **Billing:** not yet enabled — switch to `gemini-2.5-pro` as `EXPERT_MODEL` once billing is on (~$0.11/run, recommended for eval work)
+- **Pricing context:** 2.5 Flash ~$0.03/run, 2.5 Pro ~$0.11/run, 3.1 Pro ~$0.16/run; $10 billing cap = ~90 runs at 2.5 Pro rates
+- **Next focus:** prompt engineering improvements using L8 best practices (4 branches planned — see backlog)
 
 ## Architecture (4 phases)
 
@@ -201,14 +204,54 @@ git checkout main && git pull origin main
 Priority order — pick the next unchecked item each session:
 
 - [ ] **Verify full 5/5 eval** — run `python reviewer.py --eval` at start of next session once daily quota resets; confirm all 5 files pass before starting new work
+- [ ] **Enable billing + switch to 2.5 Pro** — set `EXPERT_MODEL=gemini-2.5-pro` in `.env` after enabling billing on Google Cloud; run eval to confirm score holds; router stays on Flash
+
+### Prompt Engineering (L8 best practices — do in order, one branch each)
+
+- [ ] **`eval/add-expert-few-shot-examples`** — add 1 content-quality few-shot example to each of the 4 expert prompts; example should show a complete `reasoning_scratchpad` entry + one correctly identified violation for a representative rule; since format is API-enforced, examples demonstrate *reasoning quality* not schema shape (L8 §4.7)
+- [ ] **`eval/false-positive-suppression`** — add negative constraint to all 4 expert prompts: "Do not report a violation unless you can identify the exact line number and cite the specific rule ID it violates. If uncertain, omit it." (L8 §2.6)
+- [ ] **`eval/structured-reasoning-steps`** — convert HOW TO REASON sections in memory/hardware/power experts from prose to a numbered checklist matching the rtos_expert.md template: "I see X. I check rule Y. Conclusion: Z." (L8 §2.5)
+- [ ] **`eval/router-add-third-example`** — add one 3-domain example to router.md to demonstrate that 3+ labels can be returned; covers files with RTOS + ISR + MEMORY patterns (L8 §4.4)
+
+### New Eval Coverage
+
 - [ ] **Add PWR eval file** — plant PWR-001 (constraint set after DMA start) and PWR-003 (GPT as Standby wakeup); no eval coverage for power rules yet
 - [ ] **Add HW-002 eval file** — unaligned DMA buffer; uint8_t array passed to 32-bit DMA transfer
 - [ ] **Add RTOS-001 eval file** — shared flag written from ISR, RMW from task without critical section
 - [ ] **Add ISR-003 eval file** — ISR at NVIC priority 3 (above SYSCALL threshold) calling xQueueSendFromISR; illegal even though it's a FromISR variant
+
+### Features
+
 - [ ] **Synthesizer phase** — 5th LLM call: takes original code + findings JSON → generates corrected C code as a patch
 - [ ] **`--format github` flag** — output findings as GitHub PR review comment JSON (GitHub REST API schema)
 - [ ] **CI workflow** — `.github/workflows/eval.yml`: run `--eval` on every push, fail if score < 5/5
 - [ ] **`--stats` flag** — table of rule IDs caught vs missed across all eval files; identifies which prompt needs tuning
+
+## Prompt Engineering Gap Analysis (L8)
+
+Applied against `~/ai_course/Lecture8/lecture8a-guide.md`. Use this when working on `eval/*` prompt branches.
+
+### What the prompts already do correctly
+- Role prompts with specific focus (L8 §3.1-3.4) ✓
+- `reasoning_scratchpad` field in JSON schema = structured CoT inside API-enforced output (L8 §8.2) ✓
+- API-level `response_schema` + `response_mime_type` — format guaranteed at decoding level, not by prompt instruction (L8 §8.2) ✓
+- `temperature=0.2` for deterministic eval runs (L8 §7.6) ✓
+- Negative format constraints: "No prose. No markdown." ✓
+- Eval suite as regression harness before every merge (L8 §7.1-7.5) ✓
+
+### Gaps to address (ordered by impact)
+
+**Gap 1 — No content-quality few-shot examples in expert prompts** (L8 §4.7)
+Rules are described in text only. L8 §4.7: when format is API-enforced, add examples to demonstrate *reasoning quality*, not schema shape. One example per expert file showing: what a correct `reasoning_scratchpad` walk-through looks like + one correctly identified violation with rule ID and fix.
+
+**Gap 2 — No false-positive suppression constraint** (L8 §2.6)
+Experts have "Your ONLY job is to find bugs" but no explicit threshold for confidence. Add: "Do not report a finding unless you can quote the exact line and cite the specific rule ID. If uncertain, omit it." Reduces noise in findings.
+
+**Gap 3 — HOW TO REASON is prose, not procedure** (L8 §2.5)
+`rtos_expert.md` has the right template: "I see X. I check rule Y. Conclusion: Z." The other three experts have vaguer prose. Convert all to the same numbered checklist format.
+
+**Gap 4 — Router has only 2-domain examples** (L8 §4.4)
+Representative examples should cover the distribution. 9 labels, 2 examples — add one 3-domain case (e.g., RTOS + ISR + MEMORY) to show the model it can return more than 2 labels.
 
 ## Key Design Decisions
 
