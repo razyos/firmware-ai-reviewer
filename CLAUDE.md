@@ -185,6 +185,19 @@ A full eval run costs ~$0.007 and takes ~2 min. Use targeted runs during iterati
 | PWR-005  | Tickless idle ignores XOSC_HF stabilization time |
 | SAF-001  | Watchdog fed from ISR instead of representative task |
 | SAF-002  | Hardware polling loop without finite timeout |
+| SEC-001  | Key material not zeroized after use (CryptoUtils_memset missing) |
+| SEC-002  | TRNG not opened/seeded before first generateEntropy call |
+| SEC-003  | Hardcoded key or IV byte-array literal in firmware image |
+| SEC-004  | CryptoKey object reused across operations without reinit |
+| SEC-005  | AES output buffer not zeroized after operation completes |
+| UART-001 | FIFO not enabled — UARTFIFOEnable() missing (interrupt storm at high baud) |
+| UART-002 | Baud rate divisor miscalculated in UARTConfigSetExpClk() |
+| UART-003 | DMA-UART TX buffer reused before transfer completes |
+| UART-004 | Blocking UART write called from ISR or SWI context |
+
+**Known taxonomy issues (to resolve in session 8+):**
+- `HW-007` and `SAF-002` are the same rule (polling loop without timeout) split across two experts — needs canonicalization
+- `RTOS-005` (xQueueSend return unchecked), `RTOS-006` (no stack overflow detection), `MEM-009` (pvPortMalloc NULL dereference), `MEM-010` (use-after-free), `HW-009` (SPI CS not deasserted) — identified gaps, not yet implemented
 
 ## Next Session Start Instructions
 
@@ -192,43 +205,93 @@ A full eval run costs ~$0.007 and takes ~2 min. Use targeted runs during iterati
 I'm continuing work on the firmware-ai-reviewer portfolio project at
 /Users/razyosef/firmware-ai-reviewer. Read CLAUDE.md first for full context.
 
+Step 0 — merge pending PR (if not already done):
+  PR #46 fix/router-hwreg-unclosed-parens is open — HWREG( prefix signals
+  were unclosed in router.md; fixed to HWREG(PREFIX...) notation.
+  This PR requires a full eval before merge (router changed).
+
+  git checkout fix/router-hwreg-unclosed-parens   # or just:
+  python reviewer.py --eval                        # must be 6/6
+  gh pr merge 46 --squash --delete-branch
+  git checkout main && git pull origin main
+
 Step 1 — verify green baseline:
-  python reviewer.py --eval   # must be 6/6 before starting
+  python reviewer.py --eval   # must be 6/6 before starting new work
 
-Step 2 — create security_expert.md (highest priority):
-  SECURITY domain already fires in the router. Zero expert coverage exists.
-  A crypto file routes to SECURITY but no expert runs — silent gap.
+Step 2 — create security_expert.md (highest priority — silent gap):
+  SECURITY domain fires in the router but has ZERO expert coverage.
+  A crypto file today routes to SECURITY, no expert runs, output is
+  "findings": [] with no warning. Silent false negative.
 
-  Full chain for security_expert.md:
-    a) Create prompts/security_expert.md
-       Rules to implement (starter set):
-         SEC-001: Key material not zeroized after use (CryptoUtils_memset missing)
-         SEC-002: TRNG not seeded / not opened before first crypto operation
-         SEC-003: Hardcoded key or IV literal in firmware image
-         SEC-004: CryptoKey object reused across operations without reinit
-         SEC-005: AES key left in plaintext SRAM after operation completes
-       Apply all L8 concepts: role, threshold, HARD RULES, EXAMPLE,
-       NEAR-MISS EXAMPLE, HOW TO REASON, OUTPUT SCHEMA
+  Full chain:
+    a) Create prompts/security_expert.md — apply ALL L8 concepts:
+         § 3.1  Role: senior embedded security engineer, TI CC2652R7 CryptoCell,
+                AES-CCM, SHA-2, PKA, TRNG, CryptoKey driver
+         § 2.6  Threshold: "do not report unless you can cite the exact line
+                and the specific SEC-00N rule ID"
+         § 3.4  Prioritization: Critical first (key material exposure), then Warning
+         § 2.5  Structured CoT: reasoning_scratchpad field
+         § 4.7  Few-shot example: full worked snippet with correct scratchpad
+         § 4.4  Near-miss example: shallow vs deep finding contrast
+         § 7.6  Output schema: same EXPERT_SCHEMA as other experts
+         § 2.4  Verification: "before reporting, confirm the key is not immediately
+                overwritten or that CryptoUtils_memset is not called later"
+
+       Rules to implement:
+         SEC-001: Key material not zeroized after use — memset/CryptoUtils_memset
+                  missing after AESECB_open / AESCCM_open operation completes
+         SEC-002: TRNG_open() not called before first TRNG_generateEntropy() —
+                  RNG used uninitialized
+         SEC-003: Hardcoded key or IV as a byte-array literal in firmware image —
+                  const uint8_t key[] = {0xAA, ...} visible in binary
+         SEC-004: CryptoKey object reused across operations without
+                  CryptoKey_initKey() reinit — stale key state
+         SEC-005: AES operation result buffer left in SRAM after use without
+                  CryptoUtils_memset zeroization
+
     b) Add "SECURITY": ["security_expert.md"] to DOMAIN_TO_EXPERT in reviewer.py
-    c) Create eval_suite/07_crypto_key_leak.c with planted SEC-001 + SEC-003
-    d) Create eval_suite/expected/07_crypto_key_leak.json
+    c) Create eval_suite/07_crypto_key_leak.c — plant SEC-001 + SEC-003:
+         - AES-CCM encrypt, key buffer not zeroized after operation
+         - Hardcoded IV literal as a const byte array
+    d) Create eval_suite/expected/07_crypto_key_leak.json:
+         { "description": "...", "expected_rules": ["SEC-001", "SEC-003"] }
     e) Run --eval; score must be 7/7
 
-Step 3 — create uart_expert.md:
-  UART domain fires in router. Zero expert coverage exists.
+Step 3 — create uart_expert.md (second silent gap):
+  UART domain fires in the router but has ZERO expert coverage.
   Same full chain:
-    a) Create prompts/uart_expert.md
-       Rules: FIFO overflow (no UARTFIFOEnable), baud rate miscalculation,
-              DMA-UART buffer reuse before TX complete, blocking UART in ISR
-    b) Add "UART": ["uart_expert.md"] to DOMAIN_TO_EXPERT
-    c) Create eval file + expected JSON
-    d) Run --eval; score must be N+1/N+1
+    a) Create prompts/uart_expert.md — apply ALL L8 concepts.
+       Rules to implement:
+         UART-001: UARTFIFOEnable() not called — FIFO disabled, single-byte
+                   interrupt storm at high baud rates
+         UART-002: Baud rate divisor miscalculated — UARTConfigSetExpClk()
+                   called with wrong clock source or wrong divisor formula
+         UART-003: DMA-UART TX buffer reused before DMA transfer completes —
+                   CPU writes new data before uDMAChannelModeGet() confirms STOP
+         UART-004: Blocking UART write (UART_write / UARTCharPut) called from
+                   ISR or ClockP SWI callback context
+    b) Add "UART": ["uart_expert.md"] to DOMAIN_TO_EXPERT in reviewer.py
+    c) Create eval_suite/08_uart_bugs.c — plant UART-001 + UART-004
+    d) Create eval_suite/expected/08_uart_bugs.json
+    e) Run --eval; score must be 8/8
 
-Step 4 — after expert coverage complete, continue existing backlog:
-  - Add PWR eval file (PWR-001 + PWR-003)
-  - Add HW-002 eval file
-  - Add RTOS-001 eval file
-  - Add ISR-003 eval file
+Step 4 — rule taxonomy cleanup (after new experts are green):
+  Two issues identified in existing taxonomy:
+    DUPLICATE: HW-007 ("Hardware polling loop without timeout") and
+               SAF-002 ("Hardware polling loop without finite timeout")
+               are the same rule split across two experts. Decide:
+               keep in both experts (same rule, two domains) or
+               canonicalize to one ID and reference from the other.
+    GAPS to consider adding:
+      RTOS-005: xQueueSend() / xQueueSendFromISR() return value not checked —
+                queue full silently drops data; return pdFAIL never handled
+      RTOS-006: No stack overflow detection — configCHECK_FOR_STACK_OVERFLOW=0
+                or uxTaskGetStackHighWaterMark never called in production build
+      MEM-009:  pvPortMalloc() return value not checked before dereference
+      MEM-010:  Use-after-free — pointer used after vPortFree()
+      HW-009:   SPI CS line not deasserted between transactions (missing
+                GPIO_write(CS_PIN, 1) after SPI_transfer())
+    Each gap requires: rule added to expert, eval file planted, score N+1/N+1.
 ```
 
 ## Branching Strategy
@@ -302,10 +365,23 @@ Priority order — pick the next unchecked item each session:
 - [x] **Add BLE/RF domain** — router label done; routes to `rtos_expert.md` for ISR/callback rules (RF callbacks run at ISR priority); `ble_expert.md` not yet created
 - [x] **Add SECURITY domain** — router label done; `security_expert.md` not yet created — **NEXT PRIORITY** (silent gap: crypto files get zero expert analysis)
 
-### Expert Coverage Gaps (next priority after router)
+### Pending PR
 
-- [ ] **`security_expert.md`** — SECURITY domain fires but has no expert; crypto files silently unanalyzed; rules: SEC-001 key not zeroized, SEC-002 TRNG not seeded, SEC-003 hardcoded key/IV, SEC-004 CryptoKey reuse, SEC-005 key in plaintext SRAM
-- [ ] **`uart_expert.md`** — UART domain fires but has no expert; rules: FIFO overflow, baud rate misconfiguration, DMA-UART buffer reuse before TX complete, blocking UART in ISR context
+- [ ] **PR #46** `fix/router-hwreg-unclosed-parens` — HWREG( prefix signals closed to HWREG(PREFIX...) notation; needs `python reviewer.py --eval` (6/6) before merge
+
+### Expert Coverage Gaps (highest priority)
+
+- [ ] **`security_expert.md`** — SEC-001..005; eval 07_crypto_key_leak.c; target 7/7
+- [ ] **`uart_expert.md`** — UART-001..004; eval 08_uart_bugs.c; target 8/8
+
+### Taxonomy Cleanup (after new experts)
+
+- [ ] **HW-007 / SAF-002 duplicate** — same rule in two experts; canonicalize
+- [ ] **RTOS-005** — xQueueSend return value not checked (silent queue full)
+- [ ] **RTOS-006** — no stack overflow detection configured
+- [ ] **MEM-009** — pvPortMalloc() NULL dereference (return unchecked)
+- [ ] **MEM-010** — use-after-free after vPortFree()
+- [ ] **HW-009** — SPI CS not deasserted between transactions
 
 ### New Eval Coverage (existing domains)
 
