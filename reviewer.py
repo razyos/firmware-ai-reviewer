@@ -35,8 +35,8 @@ SCRIPT_DIR  = Path(__file__).parent
 PROMPTS_DIR = SCRIPT_DIR / "prompts"
 EVAL_DIR    = SCRIPT_DIR / "eval_suite"
 
-ROUTER_MODEL = "gemini-2.5-flash"   # fast classification
-EXPERT_MODEL = "gemini-2.5-flash"   # upgrade to "gemini-3.1-pro-preview" if quota allows
+ROUTER_MODEL = os.getenv("ROUTER_MODEL", "gemini-2.5-flash")
+EXPERT_MODEL = os.getenv("EXPERT_MODEL", "gemini-2.5-flash")
 
 # JSON schema enforced at the API level for expert calls.
 # Eliminates JSONDecodeError — the model is constrained to output this structure.
