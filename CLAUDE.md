@@ -17,6 +17,8 @@ Portfolio project demonstrating AI engineering applied to embedded systems.
 - **Router:** requires evidence before including a domain — no over-classification
 - **Prompt engineering (L8):** all 4 branches merged — few-shot examples, false-positive suppression, structured reasoning steps, router 3rd example
 - **Header context injection:** implemented — `_build_context()` prepends local `#include "..."` headers as labelled blocks; line numbers preserved; `"headers"` field in output JSON; proven by eval file 06 (MEM-005 only visible via header)
+- **Model profiles:** `APP_ENV=dev` (flash-lite router + flash expert) / `APP_ENV=demo` (flash router + 2.5-pro expert); `gemini-2.0-flash` deprecated for new users
+- **README:** updated to reflect Gemini models, 6/6 eval, header injection, dev/demo profiles
 - **Next focus:** triage Gemini's architectural critique (see session start instructions below), then continue with new eval files
 
 ## Architecture (4 phases)
@@ -238,6 +240,7 @@ Priority order — pick the next unchecked item each session:
 - [x] **Temperature → 0.0** — deterministic eval, eliminated MEM-003 flakiness
 - [x] **Configurable rate limit** — `RATE_LIMIT_INTERVAL` env var, default 1.0s
 - [x] **Header context injection** — `_build_context()` in reviewer.py; eval file 06 proves it
+- [x] **Model profiles** — `APP_ENV=dev/demo` in `.env`; README updated
 - [ ] **Switch to `gemini-2.5-pro`** — returns 503 under high demand currently; retry in a future session; set `EXPERT_MODEL=gemini-2.5-pro` in `.env` when available
 
 ### New Eval Coverage
