@@ -50,6 +50,38 @@ RULE HW-008: I2C and SPI transactions must not be started while the bus is busy.
   Failing to check I2CMasterBusBusy() (or equivalent) before starting a transaction
   corrupts an in-progress transfer.
 
+=== EXAMPLE ===
+Input snippet:
+```c
+void startSensorRead(void) {           // line 8
+    uint8_t rxBuf[64];                 // line 9  — stack allocation
+    uDMAChannelTransferSet(            // line 10
+        DMA_CH, UDMA_MODE_BASIC,
+        (void *)SENSOR_BASE,
+        rxBuf,                         // line 13 — DMA destination is rxBuf on stack
+        64);
+    uDMAChannelEnable(DMA_CH);        // line 15
+    processSensorData(rxBuf);         // line 16 — CPU reads before DMA completes
+}
+```
+
+Correct reasoning_scratchpad:
+"Line 9: rxBuf is declared on the stack inside startSensorRead. Check HW-001: DMA buffers MUST NOT be stack-allocated. VIOLATION — when startSensorRead returns, the stack frame is gone but DMA continues writing to that address.
+Line 13: rxBuf (stack) passed as DMA destination. Confirms HW-001 violation location.
+Line 15: uDMAChannelEnable starts the transfer. DMA now owns rxBuf.
+Line 16: processSensorData(rxBuf) — CPU reads rxBuf immediately after enabling DMA, before transfer completes. Check HW-003: CPU must NOT access DMA buffer while DMA engine owns it. VIOLATION.
+No ping-pong, no item count math, no peripheral clock sequence visible. HW-004, HW-005, HW-006 not applicable here."
+
+Correct vulnerabilities for this snippet:
+[
+  {"line_number": 9, "severity": "Critical", "rule": "HW-001",
+   "description": "rxBuf is stack-allocated — DMA continues writing to this address after startSensorRead returns, corrupting the call stack.",
+   "fix": "Declare rxBuf as static or as a global: static uint8_t rxBuf[64];"},
+  {"line_number": 16, "severity": "Critical", "rule": "HW-003",
+   "description": "processSensorData reads rxBuf immediately after uDMAChannelEnable — DMA transfer is not complete, data is undefined.",
+   "fix": "Wait for DMA completion (poll UDMA_MODE_STOP or handle in DMA ISR) before reading rxBuf."}
+]
+
 === HOW TO REASON ===
 Walk through the code. For each DMA operation, peripheral access, or polling loop,
 state which rule you are checking and whether it passes or fails.
