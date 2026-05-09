@@ -11,6 +11,7 @@ Architecture:
 """
 
 import os
+import re
 import sys
 import json
 import time
@@ -134,10 +135,10 @@ def route(client: genai.Client, code: str) -> list[str]:
         f"```c\n{code}\n```",
         max_tokens=128,
         response_schema={"type": "array", "items": {"type": "string"}},
-    ).strip()
+    )
     try:
-        return [d.upper() for d in json.loads(text)]
-    except json.JSONDecodeError:
+        return [d.upper() for d in json.loads(text or "[]")]
+    except (json.JSONDecodeError, TypeError):
         return list(DOMAIN_TO_EXPERT.keys())  # fallback: all domains
 
 
@@ -155,7 +156,7 @@ def expert_review(client: genai.Client, expert_file: str, code: str) -> list[dic
     # KeyError guard retained in case the model omits the vulnerabilities key.
     try:
         return json.loads(text).get("vulnerabilities", [])
-    except (json.JSONDecodeError, KeyError, AttributeError):
+    except (json.JSONDecodeError, KeyError, AttributeError, TypeError):
         return []
 
 
@@ -163,15 +164,17 @@ def _build_context(path: Path) -> str:
     """Assemble source file plus any local headers it includes.
 
     Scans for #include "..." directives (quoted = local, not system headers)
-    and prepends each found header before the source file.  Line numbers in
-    the source file are preserved because headers are prepended as separate
-    labelled blocks, not inlined.
+    and prepends each found header as a labelled block before the source.
+
+    Line numbers in findings must be relative to the SOURCE FILE (line 1 = first
+    line of the .c file).  A sentinel comment tells the model exactly where the
+    source starts so it can report correct line numbers even when headers are
+    prepended.
     """
     source = path.read_text(encoding="utf-8")
     header_dir = path.parent
 
-    import re
-    local_includes = re.findall(r'#include\s+"([^"]+)"', source)
+    local_includes = re.findall(r'(?m)^[ \t]*#include\s+"([^"]+)"', source)
 
     header_blocks: list[str] = []
     for name in local_includes:
@@ -182,7 +185,11 @@ def _build_context(path: Path) -> str:
             )
 
     if header_blocks:
-        return "\n\n".join(header_blocks) + f"\n\n// ===== {path.name} =====\n{source}"
+        header_text = "\n\n".join(header_blocks)
+        sentinel = (
+            f"// ===== {path.name} — REPORT ALL line_number VALUES RELATIVE TO THIS FILE (line 1 = first line below) =====\n"
+        )
+        return header_text + f"\n\n{sentinel}{source}"
     return source
 
 
@@ -218,8 +225,8 @@ def review_file(client: genai.Client, path: Path, verbose: bool = False) -> dict
             seen.add(key)
             unique.append(finding)
 
-    import re
-    headers = [h for h in re.findall(r'#include\s+"([^"]+)"', path.read_text(encoding="utf-8"))
+    source_text = path.read_text(encoding="utf-8")
+    headers = [h for h in re.findall(r'(?m)^[ \t]*#include\s+"([^"]+)"', source_text)
                if (path.parent / h).exists()]
     return {"file": str(path), "headers": headers, "domains": domains, "findings": unique}
 
@@ -248,23 +255,26 @@ def run_eval(client: genai.Client, verbose: bool = False) -> int:
             found_rules = {f["rule"] for f in report["findings"]}
             caught = expected_rules & found_rules
             missed = expected_rules - found_rules
+            false_positives = found_rules - expected_rules
             results.append({
-                "file":    c_file.name,
-                "passed":  len(missed) == 0,
-                "expected": sorted(expected_rules),
-                "caught":  sorted(caught),
-                "missed":  sorted(missed),
-                "error":   None,
+                "file":          c_file.name,
+                "passed":        len(missed) == 0,
+                "expected":      sorted(expected_rules),
+                "caught":        sorted(caught),
+                "missed":        sorted(missed),
+                "false_positives": sorted(false_positives),
+                "error":         None,
             })
         except Exception as e:
             print(f"  [error] {c_file.name}: {e}", file=sys.stderr)
             results.append({
-                "file":    c_file.name,
-                "passed":  False,
-                "expected": sorted(expected_rules),
-                "caught":  [],
-                "missed":  sorted(expected_rules),
-                "error":   str(e)[:120],
+                "file":          c_file.name,
+                "passed":        False,
+                "expected":      sorted(expected_rules),
+                "caught":        [],
+                "missed":        sorted(expected_rules),
+                "false_positives": [],
+                "error":         str(e)[:120],
             })
 
     total  = len(results)
@@ -283,6 +293,8 @@ def run_eval(client: genai.Client, verbose: bool = False) -> int:
         print(f"  [{status}] {r['file']}")
         if r["missed"] and not r["error"]:
             print(f"         Missed: {r['missed']}")
+        if r.get("false_positives") and not r["error"]:
+            print(f"         \033[33mFP warn\033[0m: {r['false_positives']}")
         if r["error"]:
             print(f"         {r['error'][:80]}")
     print(f"{'=' * 52}\n")
