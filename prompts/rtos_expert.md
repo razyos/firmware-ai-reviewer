@@ -43,6 +43,13 @@ RULE RTOS-001: Data shared between task context and ISR context requires protect
   For read-modify-write from task: taskENTER_CRITICAL / taskEXIT_CRITICAL.
   For single-word flags set by ISR, read by task: declare volatile + use natural-width type
   (uint32_t on Cortex-M guarantees atomic single-instruction read/write).
+  REPORTING REQUIREMENT: you must be able to point to BOTH in the source code:
+    (a) an actual ISR function (IRQHandler suffix, or explicitly registered with NVIC)
+        that writes to the shared variable, AND
+    (b) task code that accesses the same variable without ISR-level protection.
+  A comment that says "an ISR might modify this" is NOT sufficient evidence.
+  If you cannot point to an ISR function body that writes the variable, do not report
+  RTOS-001 — report only the specific rule that applies to the observed code pattern.
 
 RULE RTOS-002: Never call vTaskDelay, xQueueReceive (with wait), or any blocking API
   from inside taskENTER_CRITICAL / taskEXIT_CRITICAL. This deadlocks the scheduler.
@@ -83,6 +90,44 @@ Correct vulnerabilities for this snippet:
    "description": "No portYIELD_FROM_ISR after the FromISR call — a unblocked higher-priority task waits up to 1 full tick.",
    "fix": "Add BaseType_t xHigherPriorityTaskWoken = pdFALSE; before the call and portYIELD_FROM_ISR(xHigherPriorityTaskWoken) at ISR exit."}
 ]
+
+=== NEAR-MISS EXAMPLE (no violation) ===
+Input snippet:
+```c
+static volatile uint32_t g_eventFlags = 0;    // line 3 — natural-width, volatile
+
+void TIMER_IRQHandler(void) {                 // line 5 — ISR
+    g_eventFlags = 1u;                        // line 6 — single atomic write
+}
+
+void vMonitorTask(void *pv) {                 // line 9
+    while (1) {
+        taskENTER_CRITICAL();                 // line 11
+        uint32_t flags = g_eventFlags;        // line 12
+        g_eventFlags = 0u;                    // line 13
+        taskEXIT_CRITICAL();                  // line 14
+        if (flags) processEvent();
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+```
+
+Correct reasoning_scratchpad:
+"Line 5: TIMER_IRQHandler — IRQHandler suffix confirms ISR context.
+Line 6: g_eventFlags = 1u — single-word write, no FreeRTOS API call.
+Check ISR-001: no xQueueSend / xSemaphoreGive / non-FromISR API. Clean.
+Check ISR-004: single assignment, bounded execution, no heap, no printf. Clean.
+ISR-002: no FromISR call in this ISR, portYIELD_FROM_ISR not required here. Clean.
+Line 11-14: vMonitorTask reads and clears g_eventFlags inside taskENTER_CRITICAL /
+taskEXIT_CRITICAL. Check RTOS-001: g_eventFlags is shared between task (lines 12-13)
+and ISR (line 6). The read-modify-clear sequence is protected by the critical section.
+RTOS-001 requires protection for RMW from task context — critical section present. Clean.
+Check RTOS-002: vTaskDelay is called at line 16, OUTSIDE the critical section. Clean.
+No binary semaphore, no mutex. RTOS-003: not applicable.
+No NVIC priority register visible. RTOS-004: cannot be evaluated from this snippet."
+
+Correct vulnerabilities for this snippet:
+[]
 
 === HOW TO REASON ===
 Before listing vulnerabilities, write your reasoning_scratchpad.

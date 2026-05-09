@@ -90,6 +90,49 @@ Correct vulnerabilities for this snippet:
    "fix": "Wait for DMA completion (poll UDMA_MODE_STOP or handle in DMA ISR) before reading rxBuf."}
 ]
 
+=== NEAR-MISS EXAMPLE (no violation) ===
+Input snippet:
+```c
+static uint8_t rxBuf[64];              // line 3 — static, module-level lifetime
+
+void Sensor_StartDmaRead(void) {
+    uDMAChannelTransferSet(             // line 6
+        DMA_CH, UDMA_MODE_BASIC,
+        (void *)SENSOR_BASE,
+        rxBuf,                          // line 9 — static buffer
+        sizeof(rxBuf)                   // line 10 — exact count passed to driverlib
+    );
+    uDMAChannelEnable(DMA_CH);         // line 12
+}                                       // line 13 — function returns; DMA still running
+
+void DMA_ISR(void) {                   // line 15 — completion ISR
+    processSensorData(rxBuf);          // line 16 — CPU reads after DMA completes
+}
+```
+
+Correct reasoning_scratchpad:
+"Line 3: rxBuf is static — module-level storage duration, lifetime extends past function
+return. Check HW-001: DMA buffer must NOT be stack-allocated. Static → clean. HW-001
+does not apply.
+Line 9: rxBuf is uint8_t[] — 8-bit DMA transfer, 1-byte alignment is sufficient.
+Check HW-002: DMA buffer must be naturally aligned for transfer width. 8-bit transfer
+needs only 1-byte alignment; any address satisfies this. Clean.
+Line 12: uDMAChannelEnable starts the transfer. DMA now owns rxBuf.
+Line 13: Sensor_StartDmaRead returns. rxBuf is static — no dangling pointer.
+HW-001 confirmed clean.
+Line 16: processSensorData runs inside DMA_ISR, which fires only after the transfer
+completes. Check HW-003: CPU must not access DMA buffer while DMA engine owns it.
+CPU access is in the completion ISR — DMA has finished, ownership returned to CPU.
+HW-003 clean.
+Line 10: sizeof(rxBuf) = 64 passed directly to uDMAChannelTransferSet. Check HW-005:
+driverlib handles the -1 encoding internally; passing 64 transfers exactly 64 bytes.
+Clean.
+No ping-pong DMA, no peripheral clock sequence, no polling loop, no bus transaction.
+HW-004, HW-006, HW-007, HW-008: not triggered."
+
+Correct vulnerabilities for this snippet:
+[]
+
 === HOW TO REASON ===
 Walk through the code top to bottom. For each relevant line, follow these steps:
 1. Identify the element: "I see [DMA buffer declaration / DMA enable call / peripheral register access / polling loop]."

@@ -74,6 +74,37 @@ Correct vulnerabilities for this snippet:
    "fix": "Wait for XOSC_HF ready (poll OSCClockSourceGet or use clock-ready callback) before calling UART_write after wakeup."}
 ]
 
+=== NEAR-MISS EXAMPLE (no violation) ===
+Input snippet:
+```c
+void Sensor_Acquire(void) {
+    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);     // line 3 — before transfer
+    I2C_transfer(i2cHandle, &i2cTransaction);              // line 4
+    Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY); // line 5 — matched release
+}
+
+void wakeupCallback(void) {
+    OSCClockSourceGet(OSC_SRC_CLK_HF);                    // line 9 — wait for XOSC_HF
+    while (OSCClockSourceGet(OSC_SRC_CLK_HF) != OSC_XOSC_HF) {} // line 10 — poll
+    UART_write(uartHandle, txBuf, len);                   // line 11 — XOSC_HF stable
+}
+```
+
+Correct reasoning_scratchpad:
+"Line 3: Power_setConstraint on line 3, I2C_transfer on line 4. Check PWR-001:
+constraint MUST be set BEFORE starting the peripheral operation. Correct order. Clean.
+Line 5: Power_releaseConstraint called after I2C_transfer completes. Check PWR-004:
+matching release present — no leaked constraint. Clean.
+Lines 9-10: OSCClockSourceGet polled until XOSC_HF is stable before line 11.
+Check PWR-002: XOSC_HF requires ~300 µs stabilization after Standby wakeup.
+Stabilization wait is present. Clean.
+Line 11: UART_write called after oscillator stability confirmed. PWR-002 clean.
+No GPT wakeup source, no watchdog feed, no infinite polling loop.
+PWR-003, PWR-005, SAF-001, SAF-002: not triggered."
+
+Correct vulnerabilities for this snippet:
+[]
+
 === HOW TO REASON ===
 Walk through the code top to bottom. For each relevant line, follow these steps:
 1. Identify the element: "I see [power constraint call / wakeup source / oscillator use / watchdog feed / polling loop]."

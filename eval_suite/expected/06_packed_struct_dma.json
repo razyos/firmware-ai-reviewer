@@ -1,4 +1,4 @@
 {
-  "description": "Packed struct passed to DMA — bug only visible when header is included. Tests header context injection.",
-  "expected_rules": ["MEM-005"]
+  "description": "Packed struct passed to DMA — bug only visible when header is included. Tests header context injection. __attribute__((packed)) reduces struct alignment to 1 byte; 32-bit DMA to a 1-byte-aligned buffer also violates HW-002.",
+  "expected_rules": ["MEM-005", "HW-002"]
 }
