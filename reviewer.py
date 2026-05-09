@@ -82,6 +82,7 @@ DOMAIN_TO_EXPERT: dict[str, list[str]] = {
     "MEMORY":  ["memory_expert.md"],
     "POINTER": ["memory_expert.md"],
     "SECURITY": ["security_expert.md"],
+    "UART":    ["uart_expert.md"],
     "POWER":   ["power_expert.md"],
     "SAFETY":  ["power_expert.md"],
 }

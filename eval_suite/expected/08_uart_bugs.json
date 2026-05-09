@@ -1,0 +1,4 @@
+{
+  "description": "UART init missing UARTFIFOEnable (UART-001) and blocking UART_write called from ClockP SWI callback (UART-004).",
+  "expected_rules": ["UART-001", "UART-004"]
+}

@@ -41,8 +41,13 @@ RULE ISR-003: ISRs at numeric priority BELOW configLIBRARY_MAX_SYSCALL_INTERRUPT
   Priority 0, 1, 2, 3, 4 = above the threshold = numerically lower = more urgent =
   FreeRTOS never masks them = they must never touch FreeRTOS internals.
 
-RULE ISR-004: ISRs must not block, not allocate heap (pvPortMalloc), not call printf/UART
-  blocking writes. ISR execution time must be bounded and minimal.
+RULE ISR-004: ISRs must not block, not allocate heap (pvPortMalloc), not call printf.
+  ISR execution time must be bounded and minimal.
+  ISR context scope: only flag ISR-004 for functions with the IRQHandler suffix, or for
+  functions explicitly registered with NVIC or UARTIntRegister() visible in the same file.
+  SWI/ClockP callbacks are NOT in scope for this rule — they are handled by the UART expert.
+  SCOPE LIMIT: Do NOT flag UART_write or UARTCharPut calls — those are UART expert scope
+  (UART-004). ISR-004 covers pvPortMalloc and printf only.
 
 RULE RTOS-001: Data shared between task context and ISR context requires protection.
   For read-modify-write from task: taskENTER_CRITICAL / taskEXIT_CRITICAL.
