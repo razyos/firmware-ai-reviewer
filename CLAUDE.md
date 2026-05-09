@@ -17,7 +17,7 @@ Portfolio project demonstrating AI engineering applied to embedded systems.
 - **Router:** requires evidence before including a domain — no over-classification
 - **Prompt engineering (L8):** all 4 branches merged — few-shot examples, false-positive suppression, structured reasoning steps, router 3rd example
 - **Header context injection:** implemented — `_build_context()` prepends local `#include "..."` headers as labelled blocks; line numbers preserved; `"headers"` field in output JSON; proven by eval file 06 (MEM-005 only visible via header)
-- **Next focus:** add new eval files (PWR, HW-002, RTOS-001, ISR-003) to expand rule coverage
+- **Next focus:** triage Gemini's architectural critique (see session start instructions below), then continue with new eval files
 
 ## Architecture (4 phases)
 
@@ -154,6 +154,29 @@ python reviewer.py eval_suite/01_isr_nonfromisr_api.c --verbose
 | PWR-005  | Tickless idle ignores XOSC_HF stabilization time |
 | SAF-001  | Watchdog fed from ISR instead of representative task |
 | SAF-002  | Hardware polling loop without finite timeout |
+
+## Next Session Start Instructions
+
+```
+I'm continuing work on the firmware-ai-reviewer portfolio project at
+/Users/razyosef/firmware-ai-reviewer. Read CLAUDE.md first for full context.
+
+Step 1 — verify green baseline:
+  python reviewer.py --eval   # must be 6/6 before starting
+
+Step 2 — paste Gemini's architectural critique here.
+  I challenged Gemini in the web with reviewer.py + rtos_expert.md and asked it
+  to find flaws in three categories: Reliability, Scalability, Eval validity.
+  Paste the full response and we will triage together:
+    - Real design mistakes → implement as fix/* branches
+    - Valid MVP trade-offs → note them for interview talking points
+    - Wrong/irrelevant → discard
+
+Step 3 — if no Gemini critique yet, continue with next backlog items:
+  - Add PWR eval file (PWR-001 + PWR-003)
+  - Add HW-002 eval file
+  - Add RTOS-001 eval file
+```
 
 ## Branching Strategy
 
