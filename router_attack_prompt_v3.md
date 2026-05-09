@@ -98,7 +98,7 @@ Available domain labels:
                TRNG_open(), TRNG_generateEntropy(),
                CryptoKey_initKey(), CryptoKey_initBlankKey(), CryptoUtils_memset(),
                ECDH_open(), ECDSA_open(), PKA_open(), AESCTRdrbg_generate(),
-               CryptoCC26X2_init(), HWREG(CRYPTO_BASE
+               CryptoCC26X2_init(), HWREG(CRYPTO_BASE + offset)
 
 Example — file with a FreeRTOS queue and an ISR:
 ["RTOS", "ISR"]
