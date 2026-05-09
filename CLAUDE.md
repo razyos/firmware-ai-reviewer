@@ -6,9 +6,10 @@ A prompt-chained LLM pipeline for static analysis of embedded C firmware.
 Target platform: TI CC2652R7 (ARM Cortex-M4F), FreeRTOS, C99.
 Portfolio project demonstrating AI engineering applied to embedded systems.
 
-## Current State (as of session 8)
+## Current State (as of session 9)
 
-- **Eval suite:** 8/8 passing on main — 0 FP warnings, deterministic at temperature=0.0
+- **Eval suite:** 8/8 passing on main — 0 FP warnings, deterministic at temperature=0.0 (PRs #53, #54)
+- **Eval validity:** all BUG comments and indirect hint comments removed from eval files — tests require real static analysis, not comment-reading
 - **Billing:** enabled on Google Cloud; $10 spend cap set
 - **Models:** `gemini-2.5-flash` for both router and expert (2.5 Pro returns 503 under high demand — revisit later)
 - **Rate limiter:** configurable via `RATE_LIMIT_INTERVAL` in `.env` — default 1.0s (paid tier)
@@ -139,7 +140,10 @@ A full eval run costs ~$0.007 and takes ~2 min. Use targeted runs during iterati
 
 ## How to Add a New Eval Test
 
-1. Create `eval_suite/NN_descriptive_name.c` with planted bugs and inline `/* BUG [RULE-ID] */` comments
+1. Create `eval_suite/NN_descriptive_name.c` with planted bugs. DO NOT add BUG comments or
+   any comments that hint at the rule ID or violation — the eval must test static analysis,
+   not comment-reading. Comments should describe hardware behavior only (register names,
+   offsets, peripheral descriptions). No "RMW required", "ISR context", "packed struct" etc.
 2. Create `eval_suite/expected/NN_descriptive_name.json`:
    ```json
    { "description": "...", "expected_rules": ["ISR-001", "MEM-003"] }
@@ -213,15 +217,18 @@ I'm continuing work on the firmware-ai-reviewer portfolio project at
 /Users/razyosef/firmware-ai-reviewer. Read CLAUDE.md first for full context.
 
 Step 1 — verify green baseline:
-  python reviewer.py --eval   # must be 8/8 before starting new work
+  python reviewer.py --eval   # must be 8/8, 0 FP warnings before starting new work
 
 Step 2 — add new eval coverage for existing domains (no expert work needed):
   All 6 experts exist. Next priority: eval coverage for rules with no test files.
+  IMPORTANT: New eval files must NOT contain BUG comments or indirect hint comments.
+  Comments should describe hardware behavior only (register names, offsets, peripherals).
+  See "How to Add a New Eval Test" section for the rule.
 
   a) PWR eval file (power_expert.md — no eval coverage yet):
        Create eval_suite/09_power_bugs.c — plant PWR-001 + PWR-003:
          PWR-001: Power_setConstraint called AFTER I2C_transfer starts
-         PWR-003: GPT timer used as Standby wakeup source (PERIPH domain off)
+         PWR-003: GPT timer used as Standby wakeup source (PERIPH domain off in Standby)
        Create eval_suite/expected/09_power_bugs.json
        Run --eval; score must be 9/9
 
