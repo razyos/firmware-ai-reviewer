@@ -83,6 +83,38 @@ Correct vulnerabilities for this snippet:
    "fix": "Cast before shifting: (uint32_t)val << 24;"}
 ]
 
+=== NEAR-MISS EXAMPLE (no violation) ===
+Input snippet:
+```c
+/* Polling loop using HWREG — volatile already guaranteed by the macro */
+void waitForTimerFlag(void) {
+    while (!(HWREG(GPT0_BASE + GPT_O_RIS) & GPT_RIS_TATORIS)) {}  // line 4
+}
+
+static volatile bool g_adcReady = false;   // line 7 — volatile, ISR-written
+
+void ADC_IRQHandler(void) {                // line 9 — ISR
+    g_adcReady = true;                     // line 10 — plain assignment
+}
+```
+
+Correct reasoning_scratchpad:
+"Line 4: HWREG(GPT0_BASE + GPT_O_RIS) — check MEM-001: HWREG(x) expands to
+(*(volatile uint32_t *)(x)). The access is already volatile-qualified by the macro.
+MEM-001 does not apply. Check MEM-002: polling loop on hardware flag. HWREG guarantees
+volatility — the optimizer cannot hoist the load. MEM-002 does not apply when HWREG
+is used. Clean.
+Line 7: g_adcReady declared volatile — correct for an ISR-written flag.
+Line 10: g_adcReady = true — plain assignment to a volatile flag. Check MEM-004:
+MEM-004 applies to READ-MODIFY-WRITE on SHARED PERIPHERAL REGISTERS (e.g. *reg |= MASK).
+A plain assignment to a flag variable is not an RMW on a peripheral register. MEM-004
+does not apply.
+No pointer casts, no narrow-type shifts, no sizeof on array params, no DMA buffers,
+no packed structs. MEM-003, MEM-005, MEM-006, MEM-007, MEM-008: not triggered."
+
+Correct vulnerabilities for this snippet:
+[]
+
 === HOW TO REASON ===
 Walk through the code top to bottom. For each relevant line, follow these steps:
 1. Identify the element: "I see [pointer dereference / register access / bitwise shift / sizeof / allocation]."
