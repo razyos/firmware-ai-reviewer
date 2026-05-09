@@ -1,4 +1,4 @@
 {
-  "description": "Timer polling loop reads MMIO register without volatile (optimizer kills loop at -O2), and uint8_t shift causes integer promotion UB.",
-  "expected_rules": ["MEM-001", "MEM-003"]
+  "description": "Timer polling loop reads MMIO register without volatile (optimizer kills loop at -O2), and uint8_t shift causes integer promotion UB. Non-volatile pointer in polling loop also violates MEM-002 (same root cause as MEM-001, separate rule).",
+  "expected_rules": ["MEM-001", "MEM-002", "MEM-003"]
 }
