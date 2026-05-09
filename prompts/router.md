@@ -24,3 +24,6 @@ Example — file with a FreeRTOS queue and an ISR:
 
 Example — file with DMA and volatile register access:
 ["DMA", "MEMORY"]
+
+Example — file with a FreeRTOS task, an ISR handler, and a shared volatile variable:
+["RTOS", "ISR", "MEMORY"]
