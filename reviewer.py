@@ -25,11 +25,11 @@ from google.genai import types
 
 load_dotenv()  # loads .env from the project root if it exists
 
-# Rate limiter — free tier cap is 5 RPM for gemini-2.5-flash.
-# Enforce a minimum 13-second gap between any two API calls (= 4.6 calls/min).
+# Rate limiter — free tier cap is 5 RPM; paid tier is ~1000 RPM.
+# RATE_LIMIT_INTERVAL in .env: use 13.0 for free tier, 1.0 for paid tier.
 _rate_lock = threading.Lock()
 _last_call_time: float = 0.0
-_MIN_CALL_INTERVAL = 13.0  # seconds
+_MIN_CALL_INTERVAL = float(os.getenv("RATE_LIMIT_INTERVAL", "1.0"))
 
 SCRIPT_DIR  = Path(__file__).parent
 PROMPTS_DIR = SCRIPT_DIR / "prompts"
