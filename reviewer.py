@@ -261,10 +261,22 @@ def review_file(client: genai.Client, path: Path, verbose: bool = False) -> dict
     return {"file": str(path), "headers": headers, "domains": domains, "findings": unique}
 
 
-def run_eval(client: genai.Client, verbose: bool = False) -> int:
-    """Run reviewer against all eval_suite/*.c files and check against expected rules."""
+def run_eval(client: genai.Client, verbose: bool = False, filter_str: str = "") -> int:
+    """Run reviewer against eval_suite/*.c files and check against expected rules.
+
+    filter_str: comma-separated file number prefixes to run, e.g. "01,04".
+    Empty string means run all files.
+    """
     expected_dir = EVAL_DIR / "expected"
     c_files = sorted(EVAL_DIR.glob("*.c"))
+
+    if filter_str:
+        prefixes = tuple(p.strip() for p in filter_str.split(","))
+        c_files = [f for f in c_files if f.name.startswith(prefixes)]
+        if not c_files:
+            print(f"No eval files matched prefixes: {prefixes}", file=sys.stderr)
+            return 1
+        print(f"  [eval] filtering to: {[f.name for f in c_files]}", file=sys.stderr)
 
     if not c_files:
         print("No .c files found in eval_suite/", file=sys.stderr)
@@ -337,11 +349,14 @@ def main() -> int:
         description="Firmware AI Reviewer — Prompt-chained embedded C static analysis",
     )
     parser.add_argument("file", nargs="?", help="C source file to review")
-    parser.add_argument("--eval", action="store_true", help="Run full eval suite")
+    parser.add_argument(
+        "--eval", nargs="?", const="", metavar="FILES",
+        help="Run eval suite. Optionally filter by file prefix: --eval 01,04",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Show routing details")
     args = parser.parse_args()
 
-    if not args.file and not args.eval:
+    if not args.file and args.eval is None:
         parser.print_help()
         return 1
 
@@ -353,8 +368,8 @@ def main() -> int:
 
     client = genai.Client(api_key=api_key)
 
-    if args.eval:
-        return run_eval(client, verbose=args.verbose)
+    if args.eval is not None:
+        return run_eval(client, verbose=args.verbose, filter_str=args.eval)
 
     path = Path(args.file)
     if not path.exists():

@@ -97,9 +97,35 @@ pip install -r requirements.txt   # only needed once
 # Verify main is green before starting work
 python reviewer.py --eval
 
+# Run only specific eval files (by numeric prefix) — faster during iteration
+python reviewer.py --eval 01,05          # runs 01_* and 05_* only
+python reviewer.py --eval 03             # runs 03_* only
+
 # Review a single file
 python reviewer.py eval_suite/01_isr_nonfromisr_api.c --verbose
 ```
+
+## When to Run Eval
+
+A full eval run costs ~$0.007 and takes ~2 min. Use targeted runs during iteration.
+
+| What changed | Command | Rationale |
+|---|---|---|
+| `CLAUDE.md`, `README.md`, docs only | skip | No code or prompt changed |
+| Single expert prompt tweaked | `--eval <affected files>` | Only those files exercise that expert |
+| `router.md` changed | `--eval` (full) | Router affects all file routing |
+| `reviewer.py` changed | `--eval` (full) | Orchestration affects all files |
+| Before any PR merge | `--eval` (full) | Required — regression gate |
+| New eval file added | `--eval` (full) | Verify new file + no regressions |
+
+**Expert → eval file mapping** (use for targeted runs):
+
+| Expert file | Eval files to run |
+|---|---|
+| `rtos_expert.md` | `01,04,05` |
+| `memory_expert.md` | `02,04,06` |
+| `hardware_expert.md` | `03,06` |
+| `power_expert.md` | *(no eval files yet)* |
 
 ## How to Add a New Eval Test
 
