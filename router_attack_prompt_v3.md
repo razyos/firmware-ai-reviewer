@@ -1,21 +1,55 @@
 # Attack the Router v3 — Regression and Precision Testing
 
+<!--
+PROMPT ENGINEERING CONCEPTS APPLIED (L8 framework):
+  § 3.1  Role prompting — specific expert persona with named technical knowledge
+  § 4.4  Near-miss examples — shallow finding vs. deep finding contrast
+  § 4.7  Few-shot reasoning quality — example shows expected scratchpad depth
+  § 2.5  Structured CoT — reasoning_scratchpad required before every verdict
+  § 2.6  Confidence scoring — explicit High/Medium/Low per finding
+  § 7.6  Output schema — JSON enforced with required fields
+  § 2.4  Negative constraints — verification instruction before reporting
+  § 3.4  Prioritization — impact ordering stated upfront and in schema
+-->
+
+## Your Role
+
+You are a senior embedded systems security engineer who has read:
+- The TI CC2652R7 Technical Reference Manual
+- The FreeRTOS kernel source code
+- The TI SimpleLink CC26x2 SDK documentation
+- OWASP firmware security guidelines
+
+You are also an expert prompt engineer who specializes in finding failure modes in
+LLM-based classification systems. Your goal is to find every way the router prompt
+below will misclassify firmware — missing domains, firing wrong domains, or being
+manipulated by untrusted input.
+
+**Before reporting any finding:**
+1. Re-read the exact router prompt text carefully.
+2. Confirm the gap is not already addressed by an existing instruction or signal.
+3. Write your `reasoning_scratchpad` showing the failure path step by step.
+4. Only then assign a verdict and confidence level.
+
+A finding with `"confidence": "Low"` and good reasoning is more valuable than a
+`"confidence": "High"` finding with no reasoning. Do not guess.
+
+---
+
 ## Context: What Changed Since v2
 
-Seven fixes were applied after the v2 red-team. The most significant:
+Seven fixes were applied after the v2 red-team:
 
-1. **`sizeof` removed from MEMORY signals** — was firing on nearly every file
-2. **`void*` removed from POINTER signals** — was firing on every FreeRTOS task
-3. **Exclusion list expanded** — `#include`, `#define`, `#pragma`, `_Pragma` now excluded
-4. **Evidence tightened** — bare type/variable declarations no longer count; requires an
-   active function call or macro invocation
-5. **XML boundary hardened** — final `</source_code>` tag is the only valid boundary
-6. **New vocabulary added** — `UARTCharPut`, `HCI_EXT_SetTxPowerCmd`,
-   `HWREG(CRYPTO_BASE`, `CryptoCC26X2_init`, `bleStack_init`
+1. `sizeof` removed from MEMORY signals — was firing on nearly every file
+2. `void*` removed from POINTER signals — was firing on every FreeRTOS task
+3. Exclusion list expanded — `#include`, `#define`, `#pragma`, `_Pragma` now excluded
+4. Evidence tightened — bare declarations no longer count; requires active function call
+5. XML boundary hardened — final `</source_code>` tag is the only valid boundary
+6. New vocabulary added — `UARTCharPut`, `HCI_EXT_SetTxPowerCmd`, `HWREG(CRYPTO_BASE + offset)`, `bleStack_init`
+7. HWREG pattern fixed — `HWREG(CRYPTO_BASE + offset)` replaces unclosed `HWREG(CRYPTO_BASE`
 
-The full current router prompt is reproduced below. Your job: find what the fixes broke
-(regressions), what gaps remain (new vocabulary holes), and what new attack surfaces the
-tightening created.
+Your job: find regressions (bugs the fixes introduced), remaining gaps, and new attack
+surfaces the tightening created.
 
 ---
 
@@ -114,238 +148,246 @@ Example — file with a FreeRTOS task, an ISR handler, and a shared volatile var
 
 ## What the Router Feeds Into
 
-| Domain(s)       | Expert file        | Rules covered               |
-|-----------------|--------------------|-----------------------------|
-| RTOS, ISR       | rtos_expert.md     | ISR-001..004, RTOS-001..004 |
-| DMA, I2C, SPI   | hardware_expert.md | HW-001..008                 |
-| MEMORY, POINTER | memory_expert.md   | MEM-001..008                |
-| POWER, SAFETY   | power_expert.md    | PWR-001..005, SAF-001..002  |
-| UART, BLE, SECURITY | no expert yet  | all bugs silently missed    |
+| Domain(s)           | Expert file        | Rules covered               |
+|---------------------|--------------------|-----------------------------|
+| RTOS, ISR           | rtos_expert.md     | ISR-001..004, RTOS-001..004 |
+| DMA, I2C, SPI       | hardware_expert.md | HW-001..008                 |
+| MEMORY, POINTER     | memory_expert.md   | MEM-001..008                |
+| POWER, SAFETY       | power_expert.md    | PWR-001..005, SAF-001..002  |
+| UART, BLE, SECURITY | no expert yet      | all bugs silently missed    |
+
+Missing domain → expert never runs → bug silently unreported.
+Wrong domain → wasted LLM call.
+
+---
+
+## Near-Miss Example: Shallow vs. Deep Finding
+
+**This is the quality bar. Every finding you return must meet the deep standard.**
+
+### Shallow finding (rejected — do not submit like this):
+```json
+{
+  "reasoning_scratchpad": "The MEMORY domain might miss some patterns.",
+  "finding": "MEMORY domain is incomplete.",
+  "confidence": "Low"
+}
+```
+Rejected because: no specific code pattern, no rule cited, no failure path traced.
+
+### Deep finding (accepted — this is the standard):
+```json
+{
+  "reasoning_scratchpad": "MEM-008 fires when memory_expert.md runs. memory_expert.md runs only when MEMORY domain is detected. I check the MEMORY signal list: (volatile uint32_t*), __attribute__((packed)), (uint32_t*) cast, val<<N, malloc(), alloca(). A file containing only 'void f(uint8_t buf[256]) { memcpy(out, buf, sizeof(buf)); }' matches none of these — sizeof was removed in PR #31. I re-read the prompt exclusion list: sizeof is not in the exclusion list, it is simply absent from the signal list. Router outputs []. memory_expert never runs. MEM-008 is unreachable. This is a confirmed regression.",
+  "finding": "MEM-008 (sizeof on decayed array param) is unreachable — sizeof removal in v2 created a false negative for this specific rule class.",
+  "confidence": "High",
+  "snippet": "void process(uint8_t buf[256]) { memcpy(out, buf, sizeof(buf)); }",
+  "fix": "Add memcpy() as a MEMORY signal, or restore sizeof() scoped to: only fire when sizeof() argument is a function parameter."
+}
+```
 
 ---
 
 ## Attack Surface 1: MEMORY Domain Regression
 
-Removing `sizeof` from MEMORY signals was correct for reducing false positives, but
-it may have created a **false negative** for a real rule:
-
-**MEM-008**: `sizeof(array_param)` inside a function always returns pointer size (4 bytes)
-because array parameters silently decay to pointers.
-
 ```c
 void processBuffer(uint8_t buf[256]) {
-    memcpy(output, buf, sizeof(buf));  // sizeof(buf) == 4, not 256
+    memcpy(output, buf, sizeof(buf));  // sizeof(buf) == 4, not 256 — MEM-008
 }
 ```
 
-This file contains no `(volatile uint32_t*)`, no `__attribute__((packed))`, no `malloc`,
-no shift operations — none of the remaining MEMORY signals. `sizeof` was removed.
+No `(volatile uint32_t*)`, no `__attribute__((packed))`, no `malloc`, no shift —
+none of the current MEMORY signals present.
 
-1. Does the router now output `[]` for this file, silently missing MEM-008?
-2. Could `memcpy` itself be added as a MEMORY signal to recover coverage here?
-   What is the false positive risk of adding `memcpy` as a MEMORY signal?
+1. Does the router output `[]`, silently missing MEM-008?
+2. Could `memcpy` recover coverage? Give the false positive rate estimate.
+3. Can a text prompt distinguish `sizeof(param)` from `sizeof(local_var)`?
+   If not, what is the correct tradeoff?
 
 ---
 
-## Attack Surface 2: POINTER Domain Viability
-
-Removing `void*` from POINTER signals was correct. But look at what remains:
-`ptr++`, `ptr+offset`, `(**fn)()`, `(T*)(void* expr)`, function pointer typedef or call.
-
-The last surviving signal `(T*)(void* expr)` still requires `void*` in the cast
-expression — so any cast FROM `void*` still fires. But `void*` as a parameter type
-(the false-positive case) does not.
-
-Test the boundary:
+## Attack Surface 2: POINTER Domain Viability After void* Removal
 
 ```c
-// Pattern A — should fire POINTER (cast from void*)
+// Pattern A — should fire POINTER
 uint32_t *reg = (uint32_t *)(void *)peripheral_addr;
 
-// Pattern B — should NOT fire POINTER (void* as parameter, no cast)
-void initModule(void *config) { ((ModuleConfig_t *)config)->enabled = 1; }
+// Pattern B — canonical FreeRTOS task, should NOT fire POINTER
+void sensorTask(void *pvParameters) {
+    SensorConfig_t *cfg = (SensorConfig_t *)pvParameters;
+}
 ```
 
-1. Does Pattern A correctly fire POINTER?
-2. Does Pattern B fire POINTER? It contains `(ModuleConfig_t *)config` — a cast
-   from a `void*`-typed variable, which matches `(T*)(void* expr)`. Should it?
-3. Is `(ModuleConfig_t *)config` a false positive (normal pattern) or a real
-   POINTER concern worth routing to memory_expert?
+Pattern B: `(SensorConfig_t *)pvParameters` matches `(T*)(void* expr)` because
+`pvParameters` is `void*`-typed.
+
+1. Does Pattern B fire POINTER? Is this a false positive?
+2. If yes — void* removal was insufficient. What is the minimal fix?
+3. Overall: is POINTER domain generating more signal than noise in real firmware?
 
 ---
 
-## Attack Surface 3: The #define Exclusion Edge Case
-
-The prompt now excludes `#define` from evidence. But function-like macros that expand
-to domain API calls occupy a grey zone: the `#define` line is excluded, but is the
-macro *call site* excluded?
+## Attack Surface 3: Macro Call Sites
 
 ```c
 #define SEND_DEBUG(msg)  UART_write(debugHandle, msg, strlen(msg))
 
 void faultHandler(void) {
-    SEND_DEBUG("FAULT");   // call site — active executable expression
+    SEND_DEBUG("FAULT");   // active call — expands to UART_write(...)
 }
 ```
 
-The `#define` line is excluded. But `SEND_DEBUG("FAULT")` is an active call site.
-After macro expansion it becomes `UART_write(...)` — a UART signal.
+`UART_write` never appears literally. `SEND_DEBUG` is not in the UART signal list.
+`#define` line is excluded.
 
-1. Does the router fire UART for `SEND_DEBUG("FAULT")`?
-2. Does it matter that `UART_write` never appears literally in the source?
-3. If the router misses this, write the fix.
+1. Does the router fire UART? (It should — SEND_DEBUG is a live macro invocation.)
+2. Can an LLM router recognize unexpanded macro calls as domain signals?
+3. Is this a systematic gap for all macro-wrapped driver APIs? How common is this
+   pattern in real CC2652R7 firmware?
 
 ---
 
-## Attack Surface 4: Conditional Compilation Dead Branches
-
-The prompt says to ignore `#if 0` blocks. But what about named conditional compilation
-where the router cannot statically evaluate the condition?
+## Attack Surface 4: Conditional Compilation Policy
 
 ```c
 #if defined(ENABLE_CRYPTO) && (HW_VERSION >= 2)
     AESCCM_open(0, NULL);
 #endif
 
-void regularTask(void) {
-    vTaskDelay(100);
-}
+void regularTask(void) { vTaskDelay(100); }
 ```
 
-If `ENABLE_CRYPTO` is not defined (the `AESCCM_open` call is dead code at compile time),
-should the router fire SECURITY?
-
-1. The prompt only excludes `#if 0` explicitly. Does the router fire SECURITY here?
-2. Is firing SECURITY correct (conservative — check crypto code even if conditionally compiled)
-   or incorrect (wastes an expert call on unreachable code)?
-3. What is the right policy, and how should the prompt express it?
+1. Does the router fire SECURITY even if `ENABLE_CRYPTO` may not be defined?
+2. What is the correct policy — conservative (fire, review all conditional code)
+   or precise (only live code)?
+3. Write the exact prompt sentence expressing the correct policy.
 
 ---
 
-## Attack Surface 5: HWREG as a Universal Peripheral Access Pattern
+## Attack Surface 5: HWREG Universal Access Pattern
 
-The SECURITY signal list includes `HWREG(CRYPTO_BASE` as a signal. But `HWREG()` is
-TI driverlib's universal register access macro — it is used for EVERY peripheral.
+`HWREG(CRYPTO_BASE + offset)` is listed under SECURITY. For each pattern below,
+state: correct domain, whether router fires, bug class missed if not:
 
-For each peripheral below, write the HWREG call pattern and state whether the router
-would correctly classify it, miss it, or misclassify it:
+1. `HWREG(UART0_BASE + UART_O_DR) = 'A';`
+2. `HWREG(I2C0_BASE + I2C_O_MDR);`
+3. `HWREG(DMA_BASE + UDMA_O_ENASET) |= (1 << CH);`
+4. `HWREG(WDT0_BASE + WDT_O_LOAD) = timeout;`
 
-1. `HWREG(UART0_BASE + UART_O_DR) = 'A';` — direct UART register write
-2. `HWREG(I2C0_BASE + I2C_O_MDR);` — direct I2C data register read
-3. `HWREG(DMA_BASE + UDMA_O_ENASET) |= (1 << CH);` — direct DMA enable
-4. `HWREG(WDT0_BASE + WDT_O_LOAD) = timeout;` — direct watchdog register
-
-Should `HWREG(BASE` for any peripheral base address be a signal for its respective
-domain? What is the false positive risk if added?
+For each miss: give the exact signal string to add.
 
 ---
 
-## Attack Surface 6: Static Initializer as Evidence
-
-The prompt says "bare type or variable declarations with no associated call" are
-excluded. But C static initializers can embed function-like macro expansions:
+## Attack Surface 6: Static Initializer Evidence Rule
 
 ```c
-// Pattern A — pure declaration, no call
+// Pattern A — macro constant expansion, no function call
 RF_Params rfParams = RF_Params_DEFAULT;
 
-// Pattern B — initializer that calls a function
+// Pattern B — function call as initializer (is this "active"?)
 SemaphoreHandle_t sem = xSemaphoreCreateBinary();
 
-// Pattern C — compound literal initializer
-UART_Params params = (UART_Params){ .baudRate = 115200, .readMode = UART_MODE_BLOCKING };
+// Pattern C — compound literal, no function call
+UART_Params params = (UART_Params){ .baudRate = 115200 };
 ```
 
-1. Pattern A: `RF_Params_DEFAULT` is a macro that expands to a struct literal. No
-   function call. Does BLE fire? Should it?
-2. Pattern B: `xSemaphoreCreateBinary()` IS a function call used as an initializer.
-   Does RTOS fire? This is correct behavior — confirm it.
-3. Pattern C: compound literal, no function call. Does UART fire on `.baudRate`?
+For each: does the router fire the domain? Should it? Apply the prompt's
+"function call or macro invocation in active executable code" rule precisely.
 
 ---
 
-## Attack Surface 7: Signal List Completeness for Real CC2652R7 Code
+## Attack Surface 7: Real CC2652R7 Signal Gaps
 
-The following are real CC2652R7 firmware patterns not covered by any current signal list.
-For each, identify which domain it belongs to and whether the router would fire:
+For each: correct domain, router fires?, expert missed, bug class missed:
 
-1. `GPIOIntRegister(GPIO_PORT_A_BASE, gpioISR);` — GPIO interrupt registration
-   (neither ISR nor SAFETY listed this — HwiP_ covers TI-RTOS, but GPIO direct interrupt
-   registration is different)
-
-2. `SysCtrlSystemReset();` — software-triggered system reset (SAFETY domain? Not listed)
-
-3. `AONBatMonBatteryVoltageGet();` — battery monitor reading (POWER domain? Not listed)
-
-4. `SSIDataPut(SSI0_BASE, txData);` — direct SPI driverlib call (SPI only lists
-   TI Driver layer SPI_transfer, not driverlib SSIDataPut)
-
-5. `TimerLoadSet(TIMER0_BASE, TIMER_A, period);` — hardware timer configuration
-   (POWER covers ClockP, but direct hardware timer access is not listed)
+1. `GPIOIntRegister(GPIO_PORT_A_BASE, gpioISR);`
+2. `SysCtrlSystemReset();`
+3. `AONBatMonBatteryVoltageGet();`
+4. `SSIDataPut(SSI0_BASE, txData);`
+5. `TimerLoadSet(TIMER0_BASE, TIMER_A, period);`
 
 ---
 
 ## Output Format
 
+Every finding requires `reasoning_scratchpad` before the verdict.
+Findings without reasoning will be discarded.
+Order all arrays by descending impact (highest first).
+
 ```json
 {
   "memory_regression": {
-    "mem008_reachable": true,
+    "reasoning_scratchpad": "...",
+    "mem008_reachable": false,
     "router_output_for_sizeof_file": "[]",
-    "memcpy_as_signal_risk": "...",
+    "confidence": "High | Medium | Low",
+    "memcpy_false_positive_rate": "...",
     "fix": "..."
   },
   "pointer_viability": {
+    "reasoning_scratchpad": "...",
     "pattern_a_fires": true,
     "pattern_b_fires": true,
     "pattern_b_is_false_positive": true,
+    "confidence": "High | Medium | Low",
     "fix": "..."
   },
   "define_edge_case": {
+    "reasoning_scratchpad": "...",
     "macro_callsite_fires_uart": true,
-    "explanation": "...",
-    "fix_if_missed": "..."
+    "is_systematic_gap": true,
+    "confidence": "High | Medium | Low",
+    "fix": "..."
   },
   "conditional_compilation": {
+    "reasoning_scratchpad": "...",
     "security_fires_for_ifdef_block": true,
-    "correct_policy": "...",
+    "correct_policy": "conservative | precise",
+    "confidence": "High | Medium | Low",
     "prompt_fix": "..."
   },
   "hwreg_analysis": [
     {
       "pattern": "HWREG(UART0_BASE + UART_O_DR) = 'A';",
+      "reasoning_scratchpad": "...",
       "domain": "UART",
       "router_fires": false,
-      "should_fire": true,
+      "bug_missed": "...",
+      "confidence": "High | Medium | Low",
       "fix": "..."
     }
   ],
   "static_initializer": [
     {
       "pattern": "RF_Params rfParams = RF_Params_DEFAULT;",
+      "reasoning_scratchpad": "...",
       "domain": "BLE",
       "router_fires": false,
-      "correct": true,
+      "should_fire": false,
+      "confidence": "High | Medium | Low",
       "explanation": "..."
     }
   ],
   "missing_signals": [
     {
       "pattern": "GPIOIntRegister(GPIO_PORT_A_BASE, gpioISR);",
+      "reasoning_scratchpad": "...",
       "correct_domain": "ISR",
       "router_fires": false,
-      "consequence": "..."
+      "expert_missed": "rtos_expert.md",
+      "bug_class_missed": "...",
+      "confidence": "High | Medium | Low",
+      "fix": "..."
     }
   ],
   "top_5_fixes": [
     {
       "rank": 1,
+      "reasoning_scratchpad": "...",
       "fix": "...",
-      "addresses": "..."
+      "addresses": "...",
+      "impact": "Critical | High | Medium | Low"
     }
   ]
 }
 ```
-
-Prioritize by impact: a regression that silently drops a previously-caught bug class
-is worse than a new gap in an unimplemented domain.
