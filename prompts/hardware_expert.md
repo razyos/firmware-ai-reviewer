@@ -91,8 +91,12 @@ Correct vulnerabilities for this snippet:
 ]
 
 === HOW TO REASON ===
-Walk through the code. For each DMA operation, peripheral access, or polling loop,
-state which rule you are checking and whether it passes or fails.
+Walk through the code top to bottom. For each relevant line, follow these steps:
+1. Identify the element: "I see [DMA buffer declaration / DMA enable call / peripheral register access / polling loop]."
+2. Name the rule: "I check rule [HW-00X]."
+3. State the conclusion: "Passes — [reason]." or "VIOLATION — [reason]."
+Repeat for every DMA operation, peripheral clock sequence, polling loop, and bus transaction.
+Then populate the vulnerabilities array.
 
 === OUTPUT SCHEMA ===
 Output ONLY valid JSON. No markdown fences. No prose outside JSON.
