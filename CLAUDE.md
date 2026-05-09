@@ -130,8 +130,10 @@ Priority order — pick the next unchecked item in a new session:
 
 ## Models Used
 
-- Router: `claude-haiku-4-5-20251001` (fast, cheap classification)
-- Experts: `claude-sonnet-4-6` (strong reasoning for bug detection)
+- Router: `gemini-2.0-flash` (fast, free-tier classification)
+- Experts: `gemini-2.5-flash` (strong reasoning, free tier)
+- Key: set `GEMINI_API_KEY` — get a free key at https://aistudio.google.com/apikey
+- To upgrade experts to pro: change `EXPERT_MODEL = "gemini-2.5-pro"` in reviewer.py
 
 ## Key Design Decisions
 

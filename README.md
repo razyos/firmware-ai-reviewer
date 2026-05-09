@@ -94,7 +94,7 @@ Expected output:
 
 ```bash
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-ant-...
+export GEMINI_API_KEY=AIza...   # free key at https://aistudio.google.com/apikey
 
 # Review a single file
 python reviewer.py path/to/firmware.c

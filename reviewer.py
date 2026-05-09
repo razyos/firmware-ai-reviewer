@@ -4,26 +4,28 @@ firmware-ai-reviewer — Prompt-Chained Static Analysis for Embedded C
 Target: ARM Cortex-M4F (TI CC2652R7), FreeRTOS, C99
 
 Architecture:
-  Phase 1 (Route)   — haiku classifies which embedded domains are present
+  Phase 1 (Route)   — gemini-2.0-flash classifies which embedded domains are present
   Phase 2 (Inject)  — orchestrator loads only the relevant expert prompts
-  Phase 3 (Experts) — parallel sonnet calls, each a single-focus domain expert
+  Phase 3 (Experts) — parallel gemini-2.5-flash calls, each a single-focus domain expert
   Phase 4 (Merge)   — deduplicate findings, sort by line number, output JSON
 """
 
+import os
 import sys
 import json
 import argparse
 import concurrent.futures
 from pathlib import Path
 
-import anthropic
+from google import genai
+from google.genai import types
 
 SCRIPT_DIR  = Path(__file__).parent
 PROMPTS_DIR = SCRIPT_DIR / "prompts"
 EVAL_DIR    = SCRIPT_DIR / "eval_suite"
 
-ROUTER_MODEL = "claude-haiku-4-5-20251001"
-EXPERT_MODEL = "claude-sonnet-4-6"
+ROUTER_MODEL = "gemini-2.0-flash"
+EXPERT_MODEL = "gemini-2.5-flash"
 
 DOMAIN_TO_EXPERT = {
     "RTOS":    "rtos_expert.md",
@@ -51,37 +53,51 @@ def _parse_json_response(text: str) -> dict:
     return json.loads(text)
 
 
-def route(client: anthropic.Anthropic, code: str) -> list[str]:
-    """Phase 1: Classify which embedded domains are present in the file."""
-    response = client.messages.create(
-        model=ROUTER_MODEL,
-        max_tokens=128,
-        system=_load("router.md"),
-        messages=[{"role": "user", "content": f"```c\n{code}\n```"}],
+def _generate(client: genai.Client, model: str, system: str, user: str, max_tokens: int) -> str:
+    """Single Gemini API call, returns response text."""
+    response = client.models.generate_content(
+        model=model,
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=max_tokens,
+        ),
+        contents=user,
     )
-    text = response.content[0].text.strip()
+    return response.text
+
+
+def route(client: genai.Client, code: str) -> list[str]:
+    """Phase 1: Classify which embedded domains are present in the file."""
+    text = _generate(
+        client,
+        ROUTER_MODEL,
+        _load("router.md"),
+        f"```c\n{code}\n```",
+        128,
+    ).strip()
     try:
         return [d.upper() for d in json.loads(text)]
     except json.JSONDecodeError:
         return list(DOMAIN_TO_EXPERT.keys())  # fallback: all domains
 
 
-def expert_review(client: anthropic.Anthropic, expert_file: str, code: str) -> list[dict]:
+def expert_review(client: genai.Client, expert_file: str, code: str) -> list[dict]:
     """Phase 3: Run one expert and return its vulnerability list."""
-    response = client.messages.create(
-        model=EXPERT_MODEL,
-        max_tokens=2048,
-        system=_load(expert_file),
-        messages=[{"role": "user", "content": f"Review this firmware:\n\n```c\n{code}\n```"}],
+    text = _generate(
+        client,
+        EXPERT_MODEL,
+        _load(expert_file),
+        f"Review this firmware:\n\n```c\n{code}\n```",
+        2048,
     )
     try:
-        result = _parse_json_response(response.content[0].text)
+        result = _parse_json_response(text)
         return result.get("vulnerabilities", [])
     except (json.JSONDecodeError, KeyError):
         return []
 
 
-def review_file(client: anthropic.Anthropic, path: Path, verbose: bool = False) -> dict:
+def review_file(client: genai.Client, path: Path, verbose: bool = False) -> dict:
     """Full review pipeline for one C file."""
     code = path.read_text(encoding="utf-8")
 
@@ -116,7 +132,7 @@ def review_file(client: anthropic.Anthropic, path: Path, verbose: bool = False) 
     return {"file": str(path), "domains": domains, "findings": unique}
 
 
-def run_eval(client: anthropic.Anthropic, verbose: bool = False) -> int:
+def run_eval(client: genai.Client, verbose: bool = False) -> int:
     """Run reviewer against all eval_suite/*.c files and check against expected rules."""
     expected_dir = EVAL_DIR / "expected"
     c_files = sorted(EVAL_DIR.glob("*.c"))
@@ -179,7 +195,13 @@ def main() -> int:
         parser.print_help()
         return 1
 
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from environment
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print("Error: GEMINI_API_KEY environment variable not set", file=sys.stderr)
+        print("Get a free key at https://aistudio.google.com/apikey", file=sys.stderr)
+        return 1
+
+    client = genai.Client(api_key=api_key)
 
     if args.eval:
         return run_eval(client, verbose=args.verbose)
