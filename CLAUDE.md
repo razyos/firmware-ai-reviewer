@@ -28,34 +28,32 @@ then README (public state), commit both in the same PR so they are always in syn
 
 ---
 
-## Current State (as of session 11)
+## Current State (as of pre-session 12)
 
 - **Eval suite:** CC2652R7 8/8, STM32 3/3 — deterministic at temperature=0.0
 - **Eval validity:** all BUG comments and indirect hint comments removed — tests require real static analysis, not comment-reading (PRs #53, #54)
 - **Billing:** enabled on Google Cloud; $10 spend cap set
-- **Models:** `gemini-2.5-flash` for both router and expert (2.5 Pro returns 503 under high demand — revisit later)
+- **Model profiles:** three tiers via `APP_ENV` — `dev` (flash-lite router + flash expert) / `demo` (flash router + 2.5-pro expert) / `perf` (flash router + 3.1-pro-preview expert); override any model with `ROUTER_MODEL`/`EXPERT_MODEL` in `.env`
 - **Rate limiter:** configurable via `RATE_LIMIT_INTERVAL` in `.env` — default 1.0s (paid tier)
 - **Temperature:** 0.0 (greedy decoding) — deterministic, no eval flakiness
 - **Thinking tokens:** disabled (`thinking_budget=0`) — no cost, no benefit for structured JSON output
 - **Platform support:** `--platform cc2652r7|stm32` CLI flag (default: cc2652r7); PR #55, #56
-- **Router architecture:** template injection — `router_base.md` (hardened C-parsing, all platforms) + `router_signals_{platform}.md` (domain vocabulary); assembled in Python before API call; ensures hardening improvements propagate to all platforms automatically
+- **Router architecture:** template injection — `router_base.md` (hardened C-parsing, all platforms) + `router_signals_{platform}.md` (domain vocabulary); assembled in Python before API call
 - **CC2652R7 router:** 12 domains — hardened over 7 rounds of adversarial red-team (PRs #27–#44)
 - **STM32 router signals:** `router_signals_stm32.md` — HAL/DMA/cache/callback vocabulary
 - **DOMAIN_TO_EXPERT (CC2652R7):** ISR/BLE→rtos_expert; DMA/I2C/SPI→hardware_expert; MEMORY/POINTER→memory_expert; POWER/SAFETY→power_expert; UART→uart_expert; SECURITY→security_expert
-- **DOMAIN_TO_EXPERT (STM32):** STM32/DMA→stm32_expert; ISR/RTOS/UART/SPI/I2C→stm32_expert+stm32_rtos_expert; MEMORY/POINTER→memory_expert
-- **STM32 experts:** `stm32_expert.md` (STM-001..003, STM-005..006 — D-Cache, HAL locking, priority grouping); `stm32_rtos_expert.md` (ISR-001..004, RTOS-001..004 with STM32 HAL callback ISR recognition)
-- **STM-004 retired:** FreeRTOS API misuse in HAL callbacks now reported as ISR-001/ISR-002 by stm32_rtos_expert (correct rule IDs, no duplicate)
-- **stm32_expert.md prompt fix (session 11):** reporting threshold condition 7 corrected — was "task AND ISR/callback", now "two task functions OR task + non-ISR callback"; matches HARD RULE EVIDENCE REQUIRED text
-- **Known FP pattern (session 11):** stm32/03_hal_locking.c shows RTOS-003 (spurious) + RTOS-004 (duplicate of STM-006) — both from stm32_rtos_expert; test passes 3/3; RTOS-004 duplicate requires Gemini scope consult before fixing (backlog)
-- **Expert fork threshold (Gemini-validated, pre-session 12):** Fork a generic expert into a platform-specific variant when ANY of: (A) ISR context recognition differs, (B) domain has platform-specific API violations the generic expert cannot name, (C) generic expert produces confirmed FPs. `memory_expert.md` stays shared (pure C99/GCC). `security_expert.md` and `power_expert.md` are CC2652R7-only — TI APIs; STM32 routing for SECURITY/POWER/SAFETY domains removed from STM32_DOMAIN_TO_EXPERT (explicit gap, pending `stm32_security_expert.md` and `stm32_power_expert.md`)
-- **Expert coverage:** all CC2652R7 domains have experts — zero silent gaps
-- **Prompt engineering (L8):** all gaps addressed — few-shot + near-miss examples in all experts, structured CoT, negative constraints, verification instructions
+- **DOMAIN_TO_EXPERT (STM32):** STM32/DMA/ISR/UART/SPI/I2C→stm32_expert(+stm32_rtos_expert for ISR domains); RTOS→stm32_rtos_expert; MEMORY/POINTER→memory_expert; SECURITY/POWER/SAFETY→[] (explicit gap — TI-only experts, PRs #62–#63)
+- **Expert fork threshold (Gemini-validated, PRs #62–#63):** fork when (A) ISR context recognition differs, (B) platform-specific APIs create silent gaps, or (C) generic expert produces confirmed FPs. `memory_expert.md` shared. `security_expert.md`, `power_expert.md`, `uart_expert.md` are CC2652R7-only; STM32 equivalents are backlog items
+- **STM32 experts:** `stm32_expert.md` (STM-001..003, STM-005..006); `stm32_rtos_expert.md` (ISR-001..004, RTOS-001..004 with STM32 HAL callback ISR recognition)
+- **STM-004 retired:** covered by ISR-001/ISR-002 in stm32_rtos_expert
+- **Known FP pattern:** stm32/03_hal_locking.c → RTOS-003 (spurious) + RTOS-004 (duplicate of STM-006); test passes 3/3; RTOS-004 scope fix is session 14 (Gemini needed)
+- **Prompt engineering (L8):** all gaps addressed — few-shot + near-miss examples, structured CoT, negative constraints, verification instructions in all experts
 - **Header context injection:** `_build_context()` prepends local `#include "..."` headers; proven by eval file 06
-- **Model profiles:** `APP_ENV=dev` (flash-lite router + flash expert) / `APP_ENV=demo` (flash router + 2.5-pro expert) / `APP_ENV=perf` (flash router + 3.1-pro-preview expert — maximum accuracy; preview, may 503 under load)
 - **Robustness fixes (PRs #21, #22):** path traversal guard, safety block crash fix, MAX_TOKENS truncation warning, block comment include stripping
-- **Gemini consultation protocol:** mandatory for architectural AND accuracy/performance decisions — defined globally in `~/.claude/CLAUDE.md`; draft with L8 prompt engineering best practices, 4-step audit on response, implement only where both agree. Project-specific accuracy triggers: rule misses on ≥2 consecutive runs after one tuning attempt; persistent FP not fixed after one near-miss/constraint pass; choosing between two prompt engineering strategies for the same detection problem
+- **Gemini consultation protocol:** mandatory for architectural AND accuracy/performance decisions — defined globally in `~/.claude/CLAUDE.md`; expanded pre-session 12 to cover persistent FP/miss after one fix attempt, choosing between prompt strategies, accuracy-motivated model changes
 - **Challenge protocol:** mandatory 4-step audit before implementing any LLM challenge response (see section below)
 - **Taxonomy:** SAF-002 canonicalized to HW-007; STM-004 retired (covered by ISR-001/002)
+- **Repo hygiene (pre-session 12):** stale router_attack_prompt*.md and challenge_prompt.md deleted (PRs #59–#61); all remote branches pruned
 
 ## Architecture (4 phases)
 
@@ -270,8 +268,8 @@ Step 1 — verify green baseline before touching anything:
   python reviewer.py --eval --platform stm32   # STM32, must be 3/3
   Do not start if either fails — fix the regression first.
 
-Step 2 — if the goal requires architectural decisions: follow the Gemini consultation
-  protocol in ~/.claude/CLAUDE.md before writing any code.
+Step 2 — if the goal requires architectural OR accuracy/performance decisions: follow
+  the Gemini consultation protocol in ~/.claude/CLAUDE.md before writing any code.
 
 Step 3 — implement the session goal. One branch, one PR.
 
