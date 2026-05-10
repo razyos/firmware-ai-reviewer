@@ -280,12 +280,19 @@ Step 4 — session end (mandatory):
   Commit + PR + merge. main must be green at close.
 ```
 
-**Session 12 goal (next) — complete STM32 RTOS expert eval coverage:**
+**Session 12 goal (next) — Gemini Attack 1: STM32 expert scope boundaries:**
 ```
-SESSION GOAL: Add stm32/04_isr_shared_variable.c planting RTOS-001 (HAL callback
-writes a shared counter, task RMW without taskENTER_CRITICAL) and RTOS-003 (binary
-semaphore used to protect a resource instead of a mutex). No BUG comments or indirect
-hint comments. STM32 score must reach 4/4 before closing.
+SESSION GOAL: Run an adversarial Gemini consultation on the stm32_expert /
+stm32_rtos_expert split — find overlaps, gaps, and bug classes that fall between
+the two experts. Apply the attack session protocol (present full system state,
+no confidence-based constraints, one attack surface). Audit findings, implement
+confirmed fixes, run eval. Score must not drop.
+
+Key attack questions:
+1. What overlaps exist beyond the known RTOS-003 FP and RTOS-004/STM-006 duplicate?
+2. What bug class most likely falls between both experts (neither catches it)?
+3. Is the split boundary (hardware bugs vs FreeRTOS API misuse) stable as eval
+   coverage grows, or does it create ambiguous cases at the boundary?
 ```
 
 **Backlog — ordered, one per session:**
@@ -293,16 +300,22 @@ hint comments. STM32 score must reach 4/4 before closing.
 | # | Goal | Requires Gemini? | Notes |
 |---|------|-----------------|-------|
 | ~~11~~ | ~~`stm32/03_hal_locking.c` — STM-005 + STM-006~~ | ~~No~~ | **DONE** — STM32 suite: 3/3 ✓ |
-| 12 | `stm32/04_isr_shared_variable.c` — RTOS-001 + RTOS-003 | No | shared var HAL callback↔task; semaphore-as-mutex |
-| 13 | `stm32/05_isr_priority_heap.c` — ISR-003 + ISR-004 | No | IRQ at priority 2 calling FreeRTOS; pvPortMalloc in callback |
-| 14 | RTOS-004/STM-006 duplicate — scope fix for stm32_rtos_expert | **Yes** | Gemini sign-off on which expert owns NVIC grouping check |
-| 15 | `stm32_security_expert.md` — SEC rules for HAL_CRYP_*, HAL_RNG_* | No | security_expert is CC2652R7-only (TI TRNG/CryptoKey APIs); Gemini-validated |
-| 16 | `stm32_power_expert.md` — PWR rules for STM32 Stop/Standby/HAL_PWR_* | No | power_expert is CC2652R7-only (Power_setConstraint); Gemini-validated |
-| 17 | `stm32_uart_expert.md` — HAL_UART_Init config bugs, DMA UART stream conflicts | No | uart_expert is CC2652R7-only; Gemini-flagged |
-| 18 | `09_power_bugs.c` — PWR-001 + PWR-003 (CC2652R7) | No | power_expert has zero eval coverage |
-| 19 | `10_dma_alignment.c` — HW-002 (CC2652R7) | No | unaligned DMA buffer, hardware_expert |
-| 20 | Taxonomy gaps — RTOS-005, MEM-009, HW-009 | **Yes** | Gemini sign-off before any expert edits |
-| 21 | Synthesizer phase (5th LLM call → corrected C patch) | **Yes** | Gemini sign-off on prompt structure + output format |
+| 12 | **Gemini Attack 1** — STM32 expert scope boundaries (stm32_expert vs stm32_rtos_expert overlap + gaps) | **Yes (attack)** | Present full state, no confidence filters; one attack surface |
+| 13 | **Gemini Attack 2** — eval validity / FP blindness (passing score ≠ zero FPs) | **Yes (attack)** | Min eval condition to catch systematic FPs |
+| 14 | **Gemini Attack 3** — silent gap routing (SECURITY/POWER/SAFETY → [] produces zero findings) | **Yes (attack)** | Silent zero vs CC2652R7 expert FPs |
+| 15 | **Gemini Attack 4** — backlog sequencing risk (what is the highest-risk ordering mistake?) | **Yes (attack)** | May reorder sessions 16+ |
+| 16 | `stm32/04_isr_shared_variable.c` — RTOS-001 only | No | HAL callback writes shared var, task RMW unprotected |
+| 17 | Fix RTOS-003 spurious FP in `stm32_rtos_expert.md` | No | FP fires on 03_hal_locking.c (no semaphore present); fix prompt before adding RTOS-003 eval |
+| 18 | `stm32/05_isr_shared_variable_b.c` — RTOS-003 eval | No | Plant after session 17 FP is resolved; semaphore-as-mutex |
+| 19 | `stm32/06_isr_priority_heap.c` — ISR-003 + ISR-004 | No | IRQ at priority 2 calling FreeRTOS; pvPortMalloc in callback |
+| 20 | RTOS-004/STM-006 duplicate — scope fix for stm32_rtos_expert | **Yes** | Gemini sign-off on which expert owns NVIC grouping check |
+| 21 | `stm32_security_expert.md` — SEC rules for HAL_CRYP_*, HAL_RNG_* | No | security_expert is CC2652R7-only (TI TRNG/CryptoKey APIs); Gemini-validated |
+| 22 | `stm32_power_expert.md` — PWR rules for STM32 Stop/Standby/HAL_PWR_* | No | power_expert is CC2652R7-only (Power_setConstraint); Gemini-validated |
+| 23 | `stm32_uart_expert.md` — HAL_UART_Init config bugs, DMA UART stream conflicts | No | uart_expert is CC2652R7-only; Gemini-flagged |
+| 24 | `09_power_bugs.c` — PWR-001 + PWR-003 (CC2652R7) | No | power_expert has zero eval coverage |
+| 25 | `10_dma_alignment.c` — HW-002 (CC2652R7) | No | unaligned DMA buffer, hardware_expert |
+| 26 | Taxonomy gaps — RTOS-005, MEM-009, HW-009 | **Yes** | Gemini sign-off before any expert edits |
+| 27 | Synthesizer phase (5th LLM call → corrected C patch) | **Yes** | Gemini sign-off on prompt structure + output format |
 
 ## Branching Strategy
 
@@ -409,8 +422,9 @@ Priority order — pick the next unchecked item each session:
 - [x] `01_dcache_dma_coherency.c` — STM-001, STM-002, STM-003 (STM32H7) ✓
 - [x] `02_hal_callback_isr_misuse.c` — ISR-001, ISR-002 via HAL callbacks (STM32F4) ✓
 - [x] `03_hal_locking.c` — STM-005 (HAL handle shared between tasks), STM-006 (priority grouping) ✓
-- [ ] `04_isr_shared_variable.c` — RTOS-001 (HAL callback writes shared var, task RMW unprotected) + RTOS-003 (semaphore as mutex)
-- [ ] `05_isr_priority_heap.c` — ISR-003 (IRQ at priority 2 calling FreeRTOS API) + ISR-004 (pvPortMalloc in HAL callback)
+- [ ] `04_isr_shared_variable.c` — RTOS-001 only (HAL callback writes shared var, task RMW unprotected; session 16)
+- [ ] `05_isr_shared_variable_b.c` — RTOS-003 (semaphore as mutex; session 18 — after RTOS-003 FP fix in session 17)
+- [ ] `06_isr_priority_heap.c` — ISR-003 (IRQ at priority 2 calling FreeRTOS API) + ISR-004 (pvPortMalloc in HAL callback; session 19)
 
 ### Features
 
