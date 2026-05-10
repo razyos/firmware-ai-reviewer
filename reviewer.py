@@ -4,9 +4,9 @@ firmware-ai-reviewer — Prompt-Chained Static Analysis for Embedded C
 Target: ARM Cortex-M4F (TI CC2652R7), FreeRTOS, C99
 
 Architecture:
-  Phase 1 (Route)   — gemini-2.0-flash classifies which embedded domains are present
+  Phase 1 (Route)   — gemini-2.5-flash-lite (dev) / gemini-2.5-flash (demo) classifies domains
   Phase 2 (Inject)  — orchestrator loads only the relevant expert prompts
-  Phase 3 (Experts) — parallel gemini-2.5-flash calls, each a single-focus domain expert
+  Phase 3 (Experts) — parallel gemini-2.5-flash (dev) / gemini-2.5-pro (demo) expert calls
   Phase 4 (Merge)   — deduplicate findings, sort by line number, output JSON
 """
 
