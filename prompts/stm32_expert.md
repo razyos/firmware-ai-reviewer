@@ -24,7 +24,9 @@ Before adding any finding, verify ALL of the following are true:
    (ends in CpltCallback or ErrorCallback, or is a *_IRQHandler). Do NOT flag ordinary
    task functions simply because they interact with the HAL.
 7. For STM-005: only report when the same peripheral handle is visibly accessed from
-   BOTH a FreeRTOS task AND an ISR/callback — both access points must be in the code.
+   at least two different execution contexts (two FreeRTOS task functions, or a task
+   and a non-ISR callback) without a shared mutex protecting all accesses — both
+   access points must be in the code.
 If any condition is not met, omit the finding. A short clean report is better than a
 long report full of guesses.
 Order findings by severity: Critical first, then Warning.

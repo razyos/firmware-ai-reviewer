@@ -6,9 +6,31 @@ A prompt-chained LLM pipeline for static analysis of embedded C firmware.
 Target platform: TI CC2652R7 (ARM Cortex-M4F), FreeRTOS, C99.
 Portfolio project demonstrating AI engineering applied to embedded systems.
 
-## Current State (as of session 10)
+## Session Protocol (Mandatory)
 
-- **Eval suite:** CC2652R7 8/8, STM32 2/2 — 0 FP warnings, deterministic at temperature=0.0
+### Session Start — verify before touching any file
+```bash
+python reviewer.py --eval                    # CC2652R7 must be 8/8
+python reviewer.py --eval --platform stm32   # STM32 must be 3/3
+```
+Do not begin work if either shows a regression. Fix the regression first.
+
+### Session End — required before closing
+1. `python reviewer.py --eval` → CC2652R7 N/N
+2. `python reviewer.py --eval --platform stm32` → STM32 M/M
+3. Update **CLAUDE.md** — current state section, next session instructions, backlog checkboxes
+4. Update **README.md** — eval scores, eval table, architecture diagram if changed
+5. Commit + PR + merge to main (main must always be green at close)
+
+**Why the README step:** README is the public face of the project. It drifts from authoritative
+to misleading within 2–3 sessions if not maintained. Update CLAUDE.md first (internal state),
+then README (public state), commit both in the same PR so they are always in sync.
+
+---
+
+## Current State (as of session 11)
+
+- **Eval suite:** CC2652R7 8/8, STM32 3/3 — deterministic at temperature=0.0
 - **Eval validity:** all BUG comments and indirect hint comments removed — tests require real static analysis, not comment-reading (PRs #53, #54)
 - **Billing:** enabled on Google Cloud; $10 spend cap set
 - **Models:** `gemini-2.5-flash` for both router and expert (2.5 Pro returns 503 under high demand — revisit later)
@@ -23,6 +45,8 @@ Portfolio project demonstrating AI engineering applied to embedded systems.
 - **DOMAIN_TO_EXPERT (STM32):** STM32/DMA→stm32_expert; ISR/RTOS/UART/SPI/I2C→stm32_expert+stm32_rtos_expert; MEMORY/POINTER→memory_expert
 - **STM32 experts:** `stm32_expert.md` (STM-001..003, STM-005..006 — D-Cache, HAL locking, priority grouping); `stm32_rtos_expert.md` (ISR-001..004, RTOS-001..004 with STM32 HAL callback ISR recognition)
 - **STM-004 retired:** FreeRTOS API misuse in HAL callbacks now reported as ISR-001/ISR-002 by stm32_rtos_expert (correct rule IDs, no duplicate)
+- **stm32_expert.md prompt fix (session 11):** reporting threshold condition 7 corrected — was "task AND ISR/callback", now "two task functions OR task + non-ISR callback"; matches HARD RULE EVIDENCE REQUIRED text
+- **Known FP pattern (session 11):** stm32/03_hal_locking.c shows RTOS-003 (spurious) + RTOS-004 (duplicate of STM-006) — both from stm32_rtos_expert; test passes 3/3; RTOS-004 duplicate requires Gemini scope consult before fixing (backlog)
 - **Expert coverage:** all CC2652R7 domains have experts — zero silent gaps
 - **Prompt engineering (L8):** all gaps addressed — few-shot + near-miss examples in all experts, structured CoT, negative constraints, verification instructions
 - **Header context injection:** `_build_context()` prepends local `#include "..."` headers; proven by eval file 06
@@ -228,63 +252,53 @@ A full eval run costs ~$0.007 and takes ~2 min. Use targeted runs during iterati
 
 ## Next Session Start Instructions
 
+**Rule: each session has ONE focus.** Pick one goal from the backlog, do it completely
+(eval passing, PR merged, CLAUDE.md + README.md updated), then stop or pick a second goal
+only if time remains. Do not context-switch mid-session.
+
+**Session format (paste this to start, then fill in the SESSION GOAL line):**
+
 ```
 I'm continuing work on the firmware-ai-reviewer portfolio project at
 /Users/razyosef/firmware-ai-reviewer. Read CLAUDE.md first for full context.
 
-Step 1 — verify green baseline (both platforms):
-  python reviewer.py --eval                   # CC2652R7, must be 8/8, 0 FP warnings
-  python reviewer.py --eval --platform stm32  # STM32, must be 2/2, 0 FP warnings
+SESSION GOAL: [one sentence — copied from the backlog below]
 
-Step 2 — Gemini pre-approval of next backlog items (MANDATORY before implementing):
-  Before starting any work, draft a Gemini consultation prompt for the planned tasks
-  using the protocol in ~/.claude/CLAUDE.md. Apply all L8 prompt engineering concepts
-  when drafting. Present to the user → wait for Gemini response → run 4-step audit →
-  then implement only what both agree is correct.
+Step 1 — verify green baseline before touching anything:
+  python reviewer.py --eval                    # CC2652R7, must be 8/8
+  python reviewer.py --eval --platform stm32   # STM32, must be 2/2
+  Do not start if either fails — fix the regression first.
 
-  Planned items requiring Gemini sign-off before implementing:
-  a) Adding taxonomy gap rules (RTOS-005, MEM-009, HW-009) — consult on:
-       - Whether each rule belongs in an existing expert or needs a new one
-       - Whether the eval plant approach (single function, isolated bug) is sufficient
-         to avoid FPs when the expert runs on real multi-function firmware
-  b) Synthesizer phase (5th LLM call generating corrected C) — consult on:
-       - Prompt structure: does the synthesizer see only the findings JSON + original
-         code, or also the expert reasoning_scratchpad?
-       - Output format: unified diff vs full corrected file vs inline patch markers
+Step 2 — if the goal requires architectural decisions: follow the Gemini consultation
+  protocol in ~/.claude/CLAUDE.md before writing any code.
 
-Step 3 — add new CC2652R7 eval coverage (no expert work needed, no Gemini needed):
-  IMPORTANT: No BUG comments or indirect hint comments in eval files.
-  Comments describe hardware behavior only (register names, offsets, peripheral docs).
+Step 3 — implement the session goal. One branch, one PR.
 
-  a) PWR eval file (power_expert.md — zero eval coverage):
-       Create eval_suite/09_power_bugs.c — plant PWR-001 + PWR-003:
-         PWR-001: Power_setConstraint called AFTER I2C_transfer starts (race window)
-         PWR-003: GPT timer as Standby wakeup source (PERIPH domain off in Standby)
-       Create eval_suite/expected/09_power_bugs.json → expected_rules: ["PWR-001","PWR-003"]
-       Run --eval; score must be 9/9
-
-  b) HW-002 eval file (unaligned DMA buffer):
-       Create eval_suite/10_dma_alignment.c — plant HW-002:
-         uint8_t txBuf[32] — no alignment guarantee, passed to 32-bit DMA transfer
-       Create eval_suite/expected/10_dma_alignment.json → expected_rules: ["HW-002"]
-       Run --eval; score must be 10/10
-
-Step 4 — taxonomy gap rules (after Gemini sign-off from Step 2):
-  Each requires: add rule to expert prompt, create eval file, score N+1/N+1.
-
-  RTOS-005: xQueueSend() / xQueueSendFromISR() return value not checked
-    → rtos_expert.md; create 11_rtos_queue_unchecked.c
-  MEM-009: pvPortMalloc() return value not checked before dereference
-    → memory_expert.md; create 12_malloc_null_deref.c
-  HW-009: SPI CS not deasserted between transactions
-    → hardware_expert.md; create 13_spi_cs_stuck.c
-
-Step 5 — STM32 eval coverage (expand stm32/ suite):
-  STM32 has 2/2 tests. Next: plant STM-005 (HAL handle shared between tasks without mutex)
-  and STM-006 (priority grouping override after HAL_Init).
-  Create eval_suite/stm32/03_hal_locking.c + expected JSON.
-  Run --eval --platform stm32; score must be 3/3.
+Step 4 — session end (mandatory):
+  python reviewer.py --eval && python reviewer.py --eval --platform stm32
+  Update CLAUDE.md (current state, next session goal, backlog checkboxes).
+  Update README.md (eval scores, eval table if changed).
+  Commit + PR + merge. main must be green at close.
 ```
+
+**Session 12 goal (next):**
+```
+SESSION GOAL: Add CC2652R7 power eval file — create eval_suite/09_power_bugs.c planting
+PWR-001 (Power_setConstraint called after peripheral starts) and PWR-003 (GPT used as
+Standby wakeup source). No BUG comments or indirect hint comments. CC2652R7 score must
+remain 8/8 and new file must score 1/1 (i.e., eval total 9/9) before closing.
+```
+
+**Backlog — ordered, one per session:**
+
+| # | Goal | Requires Gemini? | Notes |
+|---|------|-----------------|-------|
+| ~~11~~ | ~~`stm32/03_hal_locking.c` — STM-005 + STM-006~~ | ~~No~~ | **DONE** — STM32 suite: 3/3 ✓ |
+| 12 | `09_power_bugs.c` — PWR-001 + PWR-003 | No | power_expert has zero eval coverage |
+| 13 | `10_dma_alignment.c` — HW-002 | No | unaligned DMA buffer, hardware_expert |
+| 14 | RTOS-004/STM-006 duplicate — scope fix for stm32_rtos_expert | **Yes** | Gemini sign-off on which expert owns NVIC grouping check |
+| 15 | Taxonomy gaps — RTOS-005, MEM-009, HW-009 | **Yes** | Gemini sign-off before any expert edits |
+| 16 | Synthesizer phase (5th LLM call → corrected C patch) | **Yes** | Gemini sign-off on prompt structure + output format |
 
 ## Branching Strategy
 
@@ -293,7 +307,7 @@ Step 5 — STM32 eval coverage (expand stm32/ suite):
 ### Rules
 
 1. **Never commit directly to main** — always branch, even for a one-line prompt tweak.
-2. **main must always pass eval** — CC2652R7 8/8 and STM32 2/2; do not merge if either shows regression.
+2. **main must always pass eval** — CC2652R7 8/8 and STM32 3/3; do not merge if either shows regression.
 3. **One logical change per branch** — one eval file OR one prompt tune OR one feature.
 4. **PR description must include eval score** — copy the eval output into the PR body.
 
@@ -309,21 +323,20 @@ docs/update-claude-md           ← documentation only
 
 ### Session Workflow
 
-```bash
-# 1. Start of session
-git pull origin main
-python reviewer.py --eval          # must be green before starting
+See **Session Protocol** section at the top of this file for start/end checklists.
 
-# 2. Pick next item from backlog, create branch
+```bash
+# During a session — pick next backlog item, create branch
+git pull origin main
 git checkout -b feature/add-pwr-eval-file
 
-# 3. Do work, test frequently
+# Do work, test frequently
 python reviewer.py --eval
 
-# 4. When green — commit, push, PR, merge
+# When green — commit, push, PR, merge
 git add . && git commit -m "feat: ..."
 git push -u origin feature/add-pwr-eval-file
-gh pr create --title "..." --body "## Eval\n\`\`\`\n5/5 passed\n\`\`\`"
+gh pr create --title "..." --body "## Eval\n\`\`\`\n8/8 passed\n\`\`\`"
 gh pr merge --squash --delete-branch
 git checkout main && git pull origin main
 ```
@@ -370,6 +383,7 @@ Priority order — pick the next unchecked item each session:
 
 - [x] **HW-007 / SAF-002 duplicate** — canonicalized to HW-007 (PR #50)
 - [x] **STM-004 retired** — ISR-001/ISR-002 in stm32_rtos_expert cover it with correct IDs (PR #56)
+- [ ] **RTOS-004 / STM-006 duplicate** — both stm32_rtos_expert and stm32_expert check NVIC priority grouping; stm32_rtos_expert should defer to stm32_expert for this check; needs Gemini scope sign-off
 - [ ] **RTOS-005** — xQueueSend return value not checked (silent queue full)
 - [ ] **RTOS-006** — no stack overflow detection configured (deprioritised — hard to plant without FP)
 - [ ] **MEM-009** — pvPortMalloc() NULL dereference (return unchecked)
@@ -387,7 +401,7 @@ Priority order — pick the next unchecked item each session:
 
 - [x] `01_dcache_dma_coherency.c` — STM-001, STM-002, STM-003 (STM32H7) ✓
 - [x] `02_hal_callback_isr_misuse.c` — ISR-001, ISR-002 via HAL callbacks (STM32F4) ✓
-- [ ] `03_hal_locking.c` — STM-005 (HAL handle shared between tasks), STM-006 (priority grouping)
+- [x] `03_hal_locking.c` — STM-005 (HAL handle shared between tasks), STM-006 (priority grouping) ✓
 
 ### Features
 
