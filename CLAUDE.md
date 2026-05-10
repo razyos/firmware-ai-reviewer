@@ -266,7 +266,7 @@ SESSION GOAL: [one sentence — copied from the backlog below]
 
 Step 1 — verify green baseline before touching anything:
   python reviewer.py --eval                    # CC2652R7, must be 8/8
-  python reviewer.py --eval --platform stm32   # STM32, must be 2/2
+  python reviewer.py --eval --platform stm32   # STM32, must be 3/3
   Do not start if either fails — fix the regression first.
 
 Step 2 — if the goal requires architectural decisions: follow the Gemini consultation
