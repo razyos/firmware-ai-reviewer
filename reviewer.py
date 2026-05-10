@@ -112,9 +112,11 @@ STM32_DOMAIN_TO_EXPERT: dict[str, list[str]] = {
     "UART":    ["stm32_expert.md", "stm32_rtos_expert.md"],
     "SPI":     ["stm32_expert.md", "stm32_rtos_expert.md"],
     "I2C":     ["stm32_expert.md", "stm32_rtos_expert.md"],
-    "SECURITY": ["security_expert.md"],
-    "SAFETY":  ["power_expert.md"],
-    "POWER":   ["power_expert.md"],
+    # SECURITY, POWER, SAFETY intentionally omitted — security_expert.md and power_expert.md
+    # enforce TI CC2652R7 APIs (TRNG_open, CryptoKey_initKey, Power_setConstraint) that do
+    # not exist in STM32 HAL code. Running them on STM32 firmware produces silent gaps (no
+    # findings) or misleading output. Explicit gap is documented; platform-specific experts
+    # (stm32_security_expert.md, stm32_power_expert.md) are backlog items.
 }
 
 

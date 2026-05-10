@@ -47,6 +47,7 @@ then README (public state), commit both in the same PR so they are always in syn
 - **STM-004 retired:** FreeRTOS API misuse in HAL callbacks now reported as ISR-001/ISR-002 by stm32_rtos_expert (correct rule IDs, no duplicate)
 - **stm32_expert.md prompt fix (session 11):** reporting threshold condition 7 corrected — was "task AND ISR/callback", now "two task functions OR task + non-ISR callback"; matches HARD RULE EVIDENCE REQUIRED text
 - **Known FP pattern (session 11):** stm32/03_hal_locking.c shows RTOS-003 (spurious) + RTOS-004 (duplicate of STM-006) — both from stm32_rtos_expert; test passes 3/3; RTOS-004 duplicate requires Gemini scope consult before fixing (backlog)
+- **Expert fork threshold (Gemini-validated, pre-session 12):** Fork a generic expert into a platform-specific variant when ANY of: (A) ISR context recognition differs, (B) domain has platform-specific API violations the generic expert cannot name, (C) generic expert produces confirmed FPs. `memory_expert.md` stays shared (pure C99/GCC). `security_expert.md` and `power_expert.md` are CC2652R7-only — TI APIs; STM32 routing for SECURITY/POWER/SAFETY domains removed from STM32_DOMAIN_TO_EXPERT (explicit gap, pending `stm32_security_expert.md` and `stm32_power_expert.md`)
 - **Expert coverage:** all CC2652R7 domains have experts — zero silent gaps
 - **Prompt engineering (L8):** all gaps addressed — few-shot + near-miss examples in all experts, structured CoT, negative constraints, verification instructions
 - **Header context injection:** `_build_context()` prepends local `#include "..."` headers; proven by eval file 06
@@ -297,10 +298,12 @@ hint comments. STM32 score must reach 4/4 before closing.
 | 12 | `stm32/04_isr_shared_variable.c` — RTOS-001 + RTOS-003 | No | shared var HAL callback↔task; semaphore-as-mutex |
 | 13 | `stm32/05_isr_priority_heap.c` — ISR-003 + ISR-004 | No | IRQ at priority 2 calling FreeRTOS; pvPortMalloc in callback |
 | 14 | RTOS-004/STM-006 duplicate — scope fix for stm32_rtos_expert | **Yes** | Gemini sign-off on which expert owns NVIC grouping check |
-| 15 | `09_power_bugs.c` — PWR-001 + PWR-003 (CC2652R7) | No | power_expert has zero eval coverage |
-| 16 | `10_dma_alignment.c` — HW-002 (CC2652R7) | No | unaligned DMA buffer, hardware_expert |
-| 17 | Taxonomy gaps — RTOS-005, MEM-009, HW-009 | **Yes** | Gemini sign-off before any expert edits |
-| 18 | Synthesizer phase (5th LLM call → corrected C patch) | **Yes** | Gemini sign-off on prompt structure + output format |
+| 15 | `stm32_security_expert.md` — SEC rules for HAL_CRYP_*, HAL_RNG_* | No | security_expert is CC2652R7-only (TI TRNG/CryptoKey APIs); Gemini-validated |
+| 16 | `stm32_power_expert.md` — PWR rules for STM32 Stop/Standby modes | No | power_expert is CC2652R7-only (Power_setConstraint); Gemini-validated |
+| 17 | `09_power_bugs.c` — PWR-001 + PWR-003 (CC2652R7) | No | power_expert has zero eval coverage |
+| 18 | `10_dma_alignment.c` — HW-002 (CC2652R7) | No | unaligned DMA buffer, hardware_expert |
+| 19 | Taxonomy gaps — RTOS-005, MEM-009, HW-009 | **Yes** | Gemini sign-off before any expert edits |
+| 20 | Synthesizer phase (5th LLM call → corrected C patch) | **Yes** | Gemini sign-off on prompt structure + output format |
 
 ## Branching Strategy
 
@@ -380,6 +383,8 @@ Priority order — pick the next unchecked item each session:
 - [x] **`uart_expert.md`** — UART-001..004; eval 08_uart_bugs.c ✓
 - [x] **`stm32_expert.md`** — STM-001..003, STM-005..006; eval stm32/01 ✓
 - [x] **`stm32_rtos_expert.md`** — ISR-001..004, RTOS-001..004 (STM32 ISR context); eval stm32/02 ✓
+- [ ] **`stm32_security_expert.md`** — SEC rules for HAL_CRYP_*, HAL_RNG_* (Gemini-validated fork; security_expert.md is CC2652R7-only)
+- [ ] **`stm32_power_expert.md`** — PWR rules for STM32 Stop/Standby/HAL_PWR_* (Gemini-validated fork; power_expert.md is CC2652R7-only)
 
 ### Taxonomy Cleanup
 
