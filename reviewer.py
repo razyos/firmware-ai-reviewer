@@ -85,6 +85,28 @@ DOMAIN_TO_EXPERT: dict[str, list[str]] = {
     "UART":    ["uart_expert.md"],
     "POWER":   ["power_expert.md"],
     "SAFETY":  ["power_expert.md"],
+    "STM32":   ["stm32_expert.md"],  # STM32 HAL/DMA coherency, HAL callbacks as ISR context
+}
+
+# On STM32 platform the HAL callback ISR rules live in stm32_expert, not rtos_expert.
+# rtos_expert has CC2652R7-specific ISR naming assumptions that cause FPs on STM32 code.
+STM32_DOMAIN_TO_EXPERT: dict[str, list[str]] = {
+    # stm32_expert covers: D-Cache coherency, HAL callback ISR context (STM-004),
+    # HAL handle locking (STM-005), priority grouping (STM-006), DMA alignment (STM-003).
+    # rtos_expert is NOT included — its ISR context detection is CC2652R7-specific
+    # (IRQHandler suffix, TI driver callbacks) and causes FPs on STM32 HAL callback code.
+    "STM32":   ["stm32_expert.md"],
+    "RTOS":    ["stm32_expert.md"],  # FreeRTOS misuse in HAL callbacks → STM-004
+    "ISR":     ["stm32_expert.md"],  # HAL CpltCallback/IRQHandler ISR rules
+    "DMA":     ["stm32_expert.md"],  # D-Cache/DMA coherency (STM-001/002/003)
+    "MEMORY":  ["memory_expert.md"],
+    "POINTER": ["memory_expert.md"],
+    "UART":    ["stm32_expert.md"],
+    "SPI":     ["stm32_expert.md"],
+    "I2C":     ["stm32_expert.md"],
+    "SECURITY": ["security_expert.md"],
+    "SAFETY":  ["power_expert.md"],
+    "POWER":   ["power_expert.md"],
 }
 
 
@@ -150,12 +172,19 @@ def _generate(
         return None
 
 
-def route(client: genai.Client, code: str) -> list[str]:
+PLATFORM_ROUTER: dict[str, str] = {
+    "cc2652r7": "router.md",
+    "stm32":    "stm32_router.md",
+}
+
+
+def route(client: genai.Client, code: str, platform: str = "cc2652r7") -> list[str]:
     """Phase 1: Classify which embedded domains are present in the file."""
+    router_file = PLATFORM_ROUTER.get(platform, "router.md")
     text = _generate(
         client,
         ROUTER_MODEL,
-        _load("router.md"),
+        _load(router_file),
         f"<source_code>\n{code}\n</source_code>",
         max_tokens=128,
         response_schema={"type": "array", "items": {"type": "string"}},
@@ -233,23 +262,27 @@ def _build_context(path: Path) -> tuple[str, list[str]]:
     return source, resolved_names
 
 
-def review_file(client: genai.Client, path: Path, verbose: bool = False) -> dict:
+def review_file(client: genai.Client, path: Path, verbose: bool = False, platform: str = "cc2652r7") -> dict:
     """Full review pipeline for one C file."""
     context, headers = _build_context(path)
 
     # Phase 1: Route
-    domains = route(client, context)
+    domains = route(client, context, platform=platform)
     if verbose:
         print(f"  [router] domains: {domains}", file=sys.stderr)
 
     # Phase 2: Select unique expert files based on detected domains
-    expert_files = list({ef for d in domains if d in DOMAIN_TO_EXPERT
-                         for ef in DOMAIN_TO_EXPERT[d]})
+    domain_map = STM32_DOMAIN_TO_EXPERT if platform == "stm32" else DOMAIN_TO_EXPERT
+    expert_files = list({ef for d in domains if d in domain_map
+                         for ef in domain_map[d]})
     # Fallback: only if the router found NO domains at all (classification failure).
-    # Do NOT fall back when domains were detected but have no expert yet (e.g. SECURITY, UART) —
-    # running all experts on a crypto or UART file produces false positives with no relevant rules.
+    # Do NOT fall back when domains were detected but have no expert yet —
+    # running all experts on a misrouted file produces false positives with no relevant rules.
     if not expert_files and not domains:
-        expert_files = ["rtos_expert.md", "memory_expert.md", "hardware_expert.md", "power_expert.md"]
+        if platform == "stm32":
+            expert_files = ["stm32_expert.md", "memory_expert.md"]
+        else:
+            expert_files = ["rtos_expert.md", "memory_expert.md", "hardware_expert.md", "power_expert.md"]
 
     # Phase 3: Parallel expert reviews
     all_findings: list[dict] = []
@@ -272,14 +305,21 @@ def review_file(client: genai.Client, path: Path, verbose: bool = False) -> dict
     return {"file": str(path), "headers": headers, "domains": domains, "findings": unique}
 
 
-def run_eval(client: genai.Client, verbose: bool = False, filter_str: str = "") -> int:
-    """Run reviewer against eval_suite/*.c files and check against expected rules.
+def run_eval(client: genai.Client, verbose: bool = False, filter_str: str = "", platform: str = "cc2652r7") -> int:
+    """Run reviewer against eval_suite files and check against expected rules.
 
+    platform: "cc2652r7" runs eval_suite/*.c; "stm32" runs eval_suite/stm32/*.c.
     filter_str: comma-separated file number prefixes to run, e.g. "01,04".
     Empty string means run all files.
     """
-    expected_dir = EVAL_DIR / "expected"
-    c_files = sorted(EVAL_DIR.glob("*.c"))
+    if platform == "stm32":
+        eval_dir = EVAL_DIR / "stm32"
+        expected_dir = eval_dir / "expected"
+    else:
+        eval_dir = EVAL_DIR
+        expected_dir = eval_dir / "expected"
+
+    c_files = sorted(eval_dir.glob("*.c"))
 
     if filter_str:
         prefixes = tuple(p.strip() for p in filter_str.split(","))
@@ -290,7 +330,7 @@ def run_eval(client: genai.Client, verbose: bool = False, filter_str: str = "") 
         print(f"  [eval] filtering to: {[f.name for f in c_files]}", file=sys.stderr)
 
     if not c_files:
-        print("No .c files found in eval_suite/", file=sys.stderr)
+        print(f"No .c files found in {eval_dir}/", file=sys.stderr)
         return 1
 
     results = []
@@ -304,7 +344,7 @@ def run_eval(client: genai.Client, verbose: bool = False, filter_str: str = "") 
         print(f"  [eval] {c_file.name}...", file=sys.stderr)
 
         try:
-            report = review_file(client, c_file, verbose=verbose)
+            report = review_file(client, c_file, verbose=verbose, platform=platform)
             found_rules = {f["rule"] for f in report["findings"]}
             caught = expected_rules & found_rules
             missed = expected_rules - found_rules
@@ -365,6 +405,10 @@ def main() -> int:
         help="Run eval suite. Optionally filter by file prefix: --eval 01,04",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Show routing details")
+    parser.add_argument(
+        "--platform", choices=["cc2652r7", "stm32"], default="cc2652r7",
+        help="Target silicon platform (default: cc2652r7)",
+    )
     args = parser.parse_args()
 
     if not args.file and args.eval is None:
@@ -380,15 +424,15 @@ def main() -> int:
     client = genai.Client(api_key=api_key)
 
     if args.eval is not None:
-        return run_eval(client, verbose=args.verbose, filter_str=args.eval)
+        return run_eval(client, verbose=args.verbose, filter_str=args.eval, platform=args.platform)
 
     path = Path(args.file)
     if not path.exists():
         print(f"Error: file not found: {path}", file=sys.stderr)
         return 1
 
-    print(f"Reviewing {path.name}...", file=sys.stderr)
-    report = review_file(client, path, verbose=args.verbose)
+    print(f"Reviewing {path.name}... [platform={args.platform}]", file=sys.stderr)
+    report = review_file(client, path, verbose=args.verbose, platform=args.platform)
     print(json.dumps(report, indent=2))
     return 0
 
