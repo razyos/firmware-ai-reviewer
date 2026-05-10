@@ -56,7 +56,8 @@ Target .c file + local headers
         │    STM32 platform adds:                             │
         │    ┌──────────────┐  ┌────────────────────┐        │
         │    │ stm32_expert │  │ stm32_rtos_expert  │        │
-        │    │ STM-001..006 │  │ ISR/RTOS for STM32 │        │
+        │    │STM-001..003, │  │ ISR/RTOS for STM32 │        │
+        │    │STM-005..006  │  │                    │        │
         │    └──────┬───────┘  └────────┬───────────┘        │
         │           │                   │                      │
         └───────────┴───────────────────┴──────────────────────┘
@@ -122,7 +123,7 @@ python reviewer.py --eval 01,05
 
 | `APP_ENV` | Router | Expert | Use case |
 |-----------|--------|--------|----------|
-| `dev` (default) | gemini-2.5-flash | gemini-2.5-flash | Prompt iteration |
+| `dev` (default) | gemini-2.5-flash-lite | gemini-2.5-flash | Prompt iteration |
 | `demo` | gemini-2.5-flash | gemini-2.5-pro | Interview / production |
 
 Switch with one line in `.env`: `APP_ENV=demo`
@@ -158,12 +159,12 @@ File 06 validates **header context injection**: the packed struct definition liv
 | `stm32/03_hal_locking.c` | Same UART handle shared between two FreeRTOS tasks without a mutex; NVIC priority grouping overridden to Group 2 after HAL_Init | STM-005, STM-006 |
 
 ```bash
-python reviewer.py --eval && python reviewer.py --eval --platform stm32
+python reviewer.py --eval
 ```
 
 ```
 ====================================================
-  Eval Results (CC2652R7): 8/8 passed  ·  STM32: 3/3 passed
+  Eval Results: 8/8 passed
 ====================================================
   [PASS] 01_isr_nonfromisr_api.c
   [PASS] 02_volatile_missing.c
@@ -174,13 +175,19 @@ python reviewer.py --eval && python reviewer.py --eval --platform stm32
   [PASS] 07_crypto_key_leak.c
   [PASS] 08_uart_bugs.c
 ====================================================
+```
 
+```bash
+python reviewer.py --eval --platform stm32
+```
+
+```
 ====================================================
-  Eval Results (STM32): 3/3 passed
+  Eval Results: 3/3 passed
 ====================================================
-  [PASS] stm32/01_dcache_dma_coherency.c
-  [PASS] stm32/02_hal_callback_isr_misuse.c
-  [PASS] stm32/03_hal_locking.c
+  [PASS] 01_dcache_dma_coherency.c
+  [PASS] 02_hal_callback_isr_misuse.c
+  [PASS] 03_hal_locking.c
 ====================================================
 ```
 
