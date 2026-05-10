@@ -6,38 +6,45 @@ A prompt-chained LLM pipeline for static analysis of embedded C firmware.
 Target platform: TI CC2652R7 (ARM Cortex-M4F), FreeRTOS, C99.
 Portfolio project demonstrating AI engineering applied to embedded systems.
 
-## Current State (as of session 9)
+## Current State (as of session 10)
 
-- **Eval suite:** 8/8 passing on main — 0 FP warnings, deterministic at temperature=0.0 (PRs #53, #54)
-- **Eval validity:** all BUG comments and indirect hint comments removed from eval files — tests require real static analysis, not comment-reading
+- **Eval suite:** CC2652R7 8/8, STM32 2/2 — 0 FP warnings, deterministic at temperature=0.0
+- **Eval validity:** all BUG comments and indirect hint comments removed — tests require real static analysis, not comment-reading (PRs #53, #54)
 - **Billing:** enabled on Google Cloud; $10 spend cap set
 - **Models:** `gemini-2.5-flash` for both router and expert (2.5 Pro returns 503 under high demand — revisit later)
 - **Rate limiter:** configurable via `RATE_LIMIT_INTERVAL` in `.env` — default 1.0s (paid tier)
 - **Temperature:** 0.0 (greedy decoding) — deterministic, no eval flakiness
 - **Thinking tokens:** disabled (`thinking_budget=0`) — no cost, no benefit for structured JSON output
-- **Router:** 12 domains (RTOS, ISR, DMA, MEMORY, POINTER, I2C, SPI, POWER, SAFETY, UART, BLE, SECURITY) — hardened over 7 rounds of adversarial red-team challenge prompts (PRs #27–#44)
-- **DOMAIN_TO_EXPERT:** `dict[str, list[str]]` (1-to-many) — ISR/BLE→rtos_expert; DMA/I2C/SPI→hardware_expert; MEMORY/POINTER→memory_expert; POWER/SAFETY→power_expert; UART→uart_expert; SECURITY→security_expert
-- **Expert coverage:** all 6 routed domains now have experts — zero silent gaps
-- **Fallback fix:** `if not expert_files and not domains` — only fires on classification failure, NOT on unmapped domains
-- **Prompt engineering (L8):** all gaps addressed — few-shot + near-miss examples (§4.4) in all 6 experts, 4 router examples covering 2/2/3/4-domain cases, invocation-based `#define` rules, sizeof() qualification
-- **Header context injection:** implemented — `_build_context()` prepends local `#include "..."` headers; line numbers preserved; proven by eval file 06
+- **Platform support:** `--platform cc2652r7|stm32` CLI flag (default: cc2652r7); PR #55, #56
+- **Router architecture:** template injection — `router_base.md` (hardened C-parsing, all platforms) + `router_signals_{platform}.md` (domain vocabulary); assembled in Python before API call; ensures hardening improvements propagate to all platforms automatically
+- **CC2652R7 router:** 12 domains — hardened over 7 rounds of adversarial red-team (PRs #27–#44)
+- **STM32 router signals:** `router_signals_stm32.md` — HAL/DMA/cache/callback vocabulary
+- **DOMAIN_TO_EXPERT (CC2652R7):** ISR/BLE→rtos_expert; DMA/I2C/SPI→hardware_expert; MEMORY/POINTER→memory_expert; POWER/SAFETY→power_expert; UART→uart_expert; SECURITY→security_expert
+- **DOMAIN_TO_EXPERT (STM32):** STM32/DMA→stm32_expert; ISR/RTOS/UART/SPI/I2C→stm32_expert+stm32_rtos_expert; MEMORY/POINTER→memory_expert
+- **STM32 experts:** `stm32_expert.md` (STM-001..003, STM-005..006 — D-Cache, HAL locking, priority grouping); `stm32_rtos_expert.md` (ISR-001..004, RTOS-001..004 with STM32 HAL callback ISR recognition)
+- **STM-004 retired:** FreeRTOS API misuse in HAL callbacks now reported as ISR-001/ISR-002 by stm32_rtos_expert (correct rule IDs, no duplicate)
+- **Expert coverage:** all CC2652R7 domains have experts — zero silent gaps
+- **Prompt engineering (L8):** all gaps addressed — few-shot + near-miss examples in all experts, structured CoT, negative constraints, verification instructions
+- **Header context injection:** `_build_context()` prepends local `#include "..."` headers; proven by eval file 06
 - **Model profiles:** `APP_ENV=dev` (flash-lite router + flash expert) / `APP_ENV=demo` (flash router + 2.5-pro expert)
 - **Robustness fixes (PRs #21, #22):** path traversal guard, safety block crash fix, MAX_TOKENS truncation warning, block comment include stripping
-- **Challenge protocol:** mandatory 4-step audit before implementing any LLM challenge response (see Challenge Response Audit Protocol section)
-- **Taxonomy:** SAF-002 canonicalized to HW-007 (same rule; power_expert now uses HW-007 for polling-loop-without-timeout)
+- **Gemini consultation protocol:** mandatory for all non-trivial architectural decisions across all projects — defined globally in `~/.claude/CLAUDE.md`; draft with L8 prompt engineering best practices, 4-step audit on response, implement only where both agree
+- **Challenge protocol:** mandatory 4-step audit before implementing any LLM challenge response (see section below)
+- **Taxonomy:** SAF-002 canonicalized to HW-007; STM-004 retired (covered by ISR-001/002)
 
 ## Architecture (4 phases)
 
 ```
-Phase 1 — Route:   gemini-2.5-flash (or ROUTER_MODEL from .env) + prompts/router.md
-                   Input:  .c file content
+Phase 1 — Route:   gemini-2.5-flash (or ROUTER_MODEL from .env)
+                   Prompt: router_base.md + router_signals_{platform}.md (assembled in Python)
+                   Input:  .c file content wrapped in <source_code> tags
                    Output: JSON array of detected domains e.g. ["RTOS", "ISR"]
                    Note:   uses response_schema to force clean JSON array output
 
 Phase 2 — Inject:  orchestrator maps domains → unique set of expert prompt files
-                   DOMAIN_TO_EXPERT dict in reviewer.py controls the mapping
+                   DOMAIN_TO_EXPERT (cc2652r7) or STM32_DOMAIN_TO_EXPERT (stm32) in reviewer.py
 
-Phase 3 — Experts: parallel ThreadPoolExecutor + threading rate limiter (13s/call)
+Phase 3 — Experts: parallel ThreadPoolExecutor + threading rate limiter
                    each expert: gemini-2.5-flash (or EXPERT_MODEL from .env)
                    each returns a JSON vulnerabilities array with rule IDs
                    uses EXPERT_SCHEMA + response_mime_type for API-level JSON enforcement
@@ -53,13 +60,17 @@ requirements.txt                   — google-genai>=1.0.0, python-dotenv>=1.0.0
 .env                               — GEMINI_API_KEY, ROUTER_MODEL, EXPERT_MODEL (gitignored)
 .env.example                       — template showing all required/optional vars
 prompts/
-  router.md                        — domain classifier prompt → JSON array
-  rtos_expert.md                   — rules ISR-001..004, RTOS-001..004
-  memory_expert.md                 — rules MEM-001..008
-  hardware_expert.md               — rules HW-001..008
-  power_expert.md                  — rules PWR-001..005, SAF-001 (HW-007 canonical)
-  security_expert.md               — rules SEC-001..005 (added session 8)
-  uart_expert.md                   — rules UART-001..004 (added session 8)
+  router_base.md                   — shared C-parsing rules (all platforms) — DO NOT split
+  router_signals_cc2652r7.md       — CC2652R7 domain signal vocabulary (12 domains)
+  router_signals_stm32.md          — STM32 HAL domain signal vocabulary
+  rtos_expert.md                   — CC2652R7: ISR-001..004, RTOS-001..004
+  memory_expert.md                 — platform-agnostic: MEM-001..008
+  hardware_expert.md               — CC2652R7: HW-001..008
+  power_expert.md                  — CC2652R7: PWR-001..005, SAF-001, HW-007
+  security_expert.md               — platform-agnostic: SEC-001..005
+  uart_expert.md                   — CC2652R7: UART-001..004
+  stm32_expert.md                  — STM32: STM-001..003, STM-005..006
+  stm32_rtos_expert.md             — STM32: ISR-001..004, RTOS-001..004 (STM32 ISR context)
 eval_suite/
   01_isr_nonfromisr_api.c          — bugs: ISR-001, ISR-002
   02_volatile_missing.c            — bugs: MEM-001, MEM-002, MEM-003
@@ -67,18 +78,14 @@ eval_suite/
   04_rmw_race.c                    — bugs: MEM-004, RTOS-003
   05_callback_context.c            — bugs: ISR-001, ISR-002
   06_packed_struct_dma.c           — bugs: MEM-005, HW-002 (requires sensor_types.h)
-  07_crypto_key_leak.c             — bugs: SEC-001, SEC-003 (added session 8)
-  08_uart_bugs.c                   — bugs: UART-001, UART-004 (added session 8)
+  07_crypto_key_leak.c             — bugs: SEC-001, SEC-003
+  08_uart_bugs.c                   — bugs: UART-001, UART-004
   sensor_types.h                   — header with packed struct definition for file 06
-  expected/
-    01_isr_nonfromisr_api.json     — ground-truth expected_rules
-    02_volatile_missing.json
-    03_dma_stack_buffer.json
-    04_rmw_race.json
-    05_callback_context.json
-    06_packed_struct_dma.json
-    07_crypto_key_leak.json
-    08_uart_bugs.json
+  expected/                        — ground-truth expected_rules JSON files
+  stm32/
+    01_dcache_dma_coherency.c      — bugs: STM-001, STM-002, STM-003 (STM32H7)
+    02_hal_callback_isr_misuse.c   — bugs: ISR-001, ISR-002 (STM32F4 HAL callbacks)
+    expected/
 ```
 
 ## Environment / Setup
@@ -104,7 +111,8 @@ To enable billing (removes daily limit, pay per token ~$0.004/eval run):
 pip install -r requirements.txt   # only needed once
 
 # Verify main is green before starting work
-python reviewer.py --eval
+python reviewer.py --eval                              # CC2652R7, 8/8
+python reviewer.py --eval --platform stm32             # STM32, 2/2
 
 # Run only specific eval files (by numeric prefix) — faster during iteration
 python reviewer.py --eval 01,05          # runs 01_* and 05_* only
@@ -112,6 +120,7 @@ python reviewer.py --eval 03             # runs 03_* only
 
 # Review a single file
 python reviewer.py eval_suite/01_isr_nonfromisr_api.c --verbose
+python reviewer.py stm32_firmware.c --platform stm32 --verbose
 ```
 
 ## When to Run Eval
@@ -207,8 +216,15 @@ A full eval run costs ~$0.007 and takes ~2 min. Use targeted runs during iterati
 | UART-003 | DMA-UART TX buffer reused before transfer completes |
 | UART-004 | Blocking UART write called from ISR or SWI context |
 
+| STM-001  | Cortex-M7: SCB_CleanDCache_by_Addr missing before DMA TX (write-back cache sends stale SRAM) |
+| STM-002  | Cortex-M7: SCB_InvalidateDCache_by_Addr missing before CPU reads DMA RX buffer |
+| STM-003  | DMA buffer not __attribute__((aligned(32))) — cache maintenance covers wrong cache lines |
+| STM-004  | RETIRED — covered by ISR-001/ISR-002 in stm32_rtos_expert |
+| STM-005  | STM32 HAL __HAL_LOCK is not FreeRTOS-safe; shared handles between tasks need a mutex |
+| STM-006  | NVIC priority grouping not NVIC_PRIORITYGROUP_4 before vTaskStartScheduler |
+
 **Known taxonomy issues (to resolve in future sessions):**
-- `RTOS-005` (xQueueSend return unchecked), `RTOS-006` (no stack overflow detection), `MEM-009` (pvPortMalloc NULL dereference), `MEM-010` (use-after-free), `HW-009` (SPI CS not deasserted) — identified gaps, not yet implemented
+- `RTOS-005` (xQueueSend return unchecked), `RTOS-006` (no stack overflow detection), `MEM-009` (pvPortMalloc NULL dereference), `MEM-010` (use-after-free), `HW-009` (SPI CS not deasserted) — identified gaps, need Gemini sign-off before implementing
 
 ## Next Session Start Instructions
 
@@ -216,48 +232,58 @@ A full eval run costs ~$0.007 and takes ~2 min. Use targeted runs during iterati
 I'm continuing work on the firmware-ai-reviewer portfolio project at
 /Users/razyosef/firmware-ai-reviewer. Read CLAUDE.md first for full context.
 
-Step 1 — verify green baseline:
-  python reviewer.py --eval   # must be 8/8, 0 FP warnings before starting new work
+Step 1 — verify green baseline (both platforms):
+  python reviewer.py --eval                   # CC2652R7, must be 8/8, 0 FP warnings
+  python reviewer.py --eval --platform stm32  # STM32, must be 2/2, 0 FP warnings
 
-Step 2 — add new eval coverage for existing domains (no expert work needed):
-  All 6 experts exist. Next priority: eval coverage for rules with no test files.
-  IMPORTANT: New eval files must NOT contain BUG comments or indirect hint comments.
-  Comments should describe hardware behavior only (register names, offsets, peripherals).
-  See "How to Add a New Eval Test" section for the rule.
+Step 2 — Gemini pre-approval of next backlog items (MANDATORY before implementing):
+  Before starting any work, draft a Gemini consultation prompt for the planned tasks
+  using the protocol in ~/.claude/CLAUDE.md. Apply all L8 prompt engineering concepts
+  when drafting. Present to the user → wait for Gemini response → run 4-step audit →
+  then implement only what both agree is correct.
 
-  a) PWR eval file (power_expert.md — no eval coverage yet):
+  Planned items requiring Gemini sign-off before implementing:
+  a) Adding taxonomy gap rules (RTOS-005, MEM-009, HW-009) — consult on:
+       - Whether each rule belongs in an existing expert or needs a new one
+       - Whether the eval plant approach (single function, isolated bug) is sufficient
+         to avoid FPs when the expert runs on real multi-function firmware
+  b) Synthesizer phase (5th LLM call generating corrected C) — consult on:
+       - Prompt structure: does the synthesizer see only the findings JSON + original
+         code, or also the expert reasoning_scratchpad?
+       - Output format: unified diff vs full corrected file vs inline patch markers
+
+Step 3 — add new CC2652R7 eval coverage (no expert work needed, no Gemini needed):
+  IMPORTANT: No BUG comments or indirect hint comments in eval files.
+  Comments describe hardware behavior only (register names, offsets, peripheral docs).
+
+  a) PWR eval file (power_expert.md — zero eval coverage):
        Create eval_suite/09_power_bugs.c — plant PWR-001 + PWR-003:
-         PWR-001: Power_setConstraint called AFTER I2C_transfer starts
-         PWR-003: GPT timer used as Standby wakeup source (PERIPH domain off in Standby)
-       Create eval_suite/expected/09_power_bugs.json
+         PWR-001: Power_setConstraint called AFTER I2C_transfer starts (race window)
+         PWR-003: GPT timer as Standby wakeup source (PERIPH domain off in Standby)
+       Create eval_suite/expected/09_power_bugs.json → expected_rules: ["PWR-001","PWR-003"]
        Run --eval; score must be 9/9
 
   b) HW-002 eval file (unaligned DMA buffer):
        Create eval_suite/10_dma_alignment.c — plant HW-002:
-         uint8_t txBuf[32] — byte-aligned buffer passed to 32-bit DMA transfer
-         uDMAChannelTransferSet(..., UDMA_SIZE_32, ...) with non-4-byte-aligned src
-       Create eval_suite/expected/10_dma_alignment.json
+         uint8_t txBuf[32] — no alignment guarantee, passed to 32-bit DMA transfer
+       Create eval_suite/expected/10_dma_alignment.json → expected_rules: ["HW-002"]
        Run --eval; score must be 10/10
 
-Step 3 — taxonomy gap rules (add to existing experts, each needs eval file):
-  Pick one at a time. Each requires: add rule to expert, create eval file, score N+1/N+1.
+Step 4 — taxonomy gap rules (after Gemini sign-off from Step 2):
+  Each requires: add rule to expert prompt, create eval file, score N+1/N+1.
 
   RTOS-005: xQueueSend() / xQueueSendFromISR() return value not checked
-    → add to rtos_expert.md; create 11_rtos_queue_unchecked.c
-  RTOS-006: No stack overflow detection configured
-    → add to rtos_expert.md; create 12_rtos_stack_overflow.c
+    → rtos_expert.md; create 11_rtos_queue_unchecked.c
   MEM-009: pvPortMalloc() return value not checked before dereference
-    → add to memory_expert.md; create 13_malloc_null_deref.c
-  MEM-010: Use-after-free after vPortFree()
-    → add to memory_expert.md; create 14_use_after_free.c
+    → memory_expert.md; create 12_malloc_null_deref.c
   HW-009: SPI CS not deasserted between transactions
-    → add to hardware_expert.md; create 15_spi_cs_stuck.c
+    → hardware_expert.md; create 13_spi_cs_stuck.c
 
-Step 4 — features (after eval coverage is solid):
-  - Synthesizer phase: 5th LLM call generating corrected C code as a patch
-  - --format github flag: output as GitHub PR review comment JSON
-  - CI workflow: .github/workflows/eval.yml — run --eval on every push
-  - --stats flag: table of rule IDs caught vs missed across eval files
+Step 5 — STM32 eval coverage (expand stm32/ suite):
+  STM32 has 2/2 tests. Next: plant STM-005 (HAL handle shared between tasks without mutex)
+  and STM-006 (priority grouping override after HAL_Init).
+  Create eval_suite/stm32/03_hal_locking.c + expected JSON.
+  Run --eval --platform stm32; score must be 3/3.
 ```
 
 ## Branching Strategy
@@ -267,7 +293,7 @@ Step 4 — features (after eval coverage is solid):
 ### Rules
 
 1. **Never commit directly to main** — always branch, even for a one-line prompt tweak.
-2. **main must always pass eval 5/5** — do not merge a PR if eval shows any regression.
+2. **main must always pass eval** — CC2652R7 8/8 and STM32 2/2; do not merge if either shows regression.
 3. **One logical change per branch** — one eval file OR one prompt tune OR one feature.
 4. **PR description must include eval score** — copy the eval output into the PR body.
 
@@ -328,36 +354,47 @@ Priority order — pick the next unchecked item each session:
 ### Router Expansion
 
 - [x] **Add UART domain** — router label done; `uart_expert.md` added session 8 (PR #49)
-- [x] **Add BLE/RF domain** — router label done; routes to `rtos_expert.md` for ISR/callback rules (RF callbacks run at ISR priority); `ble_expert.md` not yet created
+- [x] **Add BLE/RF domain** — router label done; routes to `rtos_expert.md` for ISR/callback rules
 - [x] **Add SECURITY domain** — router label done; `security_expert.md` added session 8 (PR #48)
+- [x] **Router template injection** — `router_base.md` + `router_signals_{platform}.md`; hardening propagates to all platforms (PR #56)
+- [x] **STM32 platform** — `--platform stm32` flag; `router_signals_stm32.md`; `stm32_expert.md`; `stm32_rtos_expert.md` (PRs #55, #56)
 
 ### Expert Coverage Gaps
 
-- [x] **`security_expert.md`** — SEC-001..005; eval 07_crypto_key_leak.c; 7/7 ✓
-- [x] **`uart_expert.md`** — UART-001..004; eval 08_uart_bugs.c; 8/8 ✓
+- [x] **`security_expert.md`** — SEC-001..005; eval 07_crypto_key_leak.c ✓
+- [x] **`uart_expert.md`** — UART-001..004; eval 08_uart_bugs.c ✓
+- [x] **`stm32_expert.md`** — STM-001..003, STM-005..006; eval stm32/01 ✓
+- [x] **`stm32_rtos_expert.md`** — ISR-001..004, RTOS-001..004 (STM32 ISR context); eval stm32/02 ✓
 
 ### Taxonomy Cleanup
 
-- [x] **HW-007 / SAF-002 duplicate** — canonicalized to HW-007 in both experts (PR #50)
+- [x] **HW-007 / SAF-002 duplicate** — canonicalized to HW-007 (PR #50)
+- [x] **STM-004 retired** — ISR-001/ISR-002 in stm32_rtos_expert cover it with correct IDs (PR #56)
 - [ ] **RTOS-005** — xQueueSend return value not checked (silent queue full)
-- [ ] **RTOS-006** — no stack overflow detection configured
+- [ ] **RTOS-006** — no stack overflow detection configured (deprioritised — hard to plant without FP)
 - [ ] **MEM-009** — pvPortMalloc() NULL dereference (return unchecked)
 - [ ] **MEM-010** — use-after-free after vPortFree()
 - [ ] **HW-009** — SPI CS not deasserted between transactions
 
-### New Eval Coverage (existing domains, no expert work needed)
+### New Eval Coverage (CC2652R7 — existing domains, no expert work needed)
 
-- [ ] **Add PWR eval file** — plant PWR-001 (constraint set after DMA start) and PWR-003 (GPT as Standby wakeup); no eval coverage for power rules yet
-- [ ] **Add HW-002 eval file** — unaligned DMA buffer; uint8_t array passed to 32-bit DMA transfer
+- [ ] **Add PWR eval file** — plant PWR-001 + PWR-003; no eval coverage for power rules yet
+- [ ] **Add HW-002 eval file** — unaligned DMA buffer; uint8_t array passed to 32-bit DMA
 - [ ] **Add RTOS-001 eval file** — shared flag written from ISR, RMW from task without critical section
-- [ ] **Add ISR-003 eval file** — ISR at NVIC priority 3 (above SYSCALL threshold) calling xQueueSendFromISR; illegal even though it's a FromISR variant
+- [ ] **Add ISR-003 eval file** — ISR at NVIC priority 3 calling xQueueSendFromISR (above SYSCALL threshold)
+
+### New Eval Coverage (STM32)
+
+- [x] `01_dcache_dma_coherency.c` — STM-001, STM-002, STM-003 (STM32H7) ✓
+- [x] `02_hal_callback_isr_misuse.c` — ISR-001, ISR-002 via HAL callbacks (STM32F4) ✓
+- [ ] `03_hal_locking.c` — STM-005 (HAL handle shared between tasks), STM-006 (priority grouping)
 
 ### Features
 
-- [ ] **Synthesizer phase** — 5th LLM call: takes original code + findings JSON → generates corrected C code as a patch
-- [ ] **`--format github` flag** — output findings as GitHub PR review comment JSON (GitHub REST API schema)
-- [ ] **CI workflow** — `.github/workflows/eval.yml`: run `--eval` on every push, fail if score < 8/8
-- [ ] **`--stats` flag** — table of rule IDs caught vs missed across all eval files; identifies which prompt needs tuning
+- [ ] **Synthesizer phase** — 5th LLM call: original code + findings JSON → corrected C patch (requires Gemini sign-off on prompt structure first)
+- [ ] **`--format github` flag** — output findings as GitHub PR review comment JSON
+- [ ] **CI workflow** — `.github/workflows/eval.yml`: run `--eval` on every push, fail if score drops
+- [ ] **`--stats` flag** — table of rule IDs caught vs missed across all eval files
 
 ## Challenge Response Audit Protocol (Mandatory)
 
