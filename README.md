@@ -125,6 +125,7 @@ python reviewer.py --eval 01,05
 |-----------|--------|--------|----------|
 | `dev` (default) | gemini-2.5-flash-lite | gemini-2.5-flash | Prompt iteration |
 | `demo` | gemini-2.5-flash | gemini-2.5-pro | Interview / production |
+| `perf` | gemini-2.5-pro | gemini-2.5-pro | Maximum accuracy, both stages |
 
 Switch with one line in `.env`: `APP_ENV=demo`
 

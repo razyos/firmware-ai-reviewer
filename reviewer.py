@@ -39,10 +39,16 @@ EVAL_DIR    = SCRIPT_DIR / "eval_suite"
 # APP_ENV=demo uses stronger models for final demos/interviews.
 # APP_ENV=dev (default) uses cheaper models for prompt iteration.
 _APP_ENV = os.getenv("APP_ENV", "dev")
-_DEMO_MODE = _APP_ENV == "demo"
 
-ROUTER_MODEL = os.getenv("ROUTER_MODEL", "gemini-2.5-flash"      if _DEMO_MODE else "gemini-2.5-flash-lite")
-EXPERT_MODEL = os.getenv("EXPERT_MODEL", "gemini-2.5-pro"        if _DEMO_MODE else "gemini-2.5-flash")
+ROUTER_MODEL = os.getenv("ROUTER_MODEL",
+    "gemini-2.5-pro"       if _APP_ENV == "perf" else
+    "gemini-2.5-flash"     if _APP_ENV == "demo" else
+    "gemini-2.5-flash-lite"  # dev (default)
+)
+EXPERT_MODEL = os.getenv("EXPERT_MODEL",
+    "gemini-2.5-pro"       if _APP_ENV in ("perf", "demo") else
+    "gemini-2.5-flash"       # dev (default)
+)
 
 # JSON schema enforced at the API level for expert calls.
 # Eliminates JSONDecodeError — the model is constrained to output this structure.
