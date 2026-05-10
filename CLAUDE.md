@@ -299,11 +299,12 @@ hint comments. STM32 score must reach 4/4 before closing.
 | 13 | `stm32/05_isr_priority_heap.c` — ISR-003 + ISR-004 | No | IRQ at priority 2 calling FreeRTOS; pvPortMalloc in callback |
 | 14 | RTOS-004/STM-006 duplicate — scope fix for stm32_rtos_expert | **Yes** | Gemini sign-off on which expert owns NVIC grouping check |
 | 15 | `stm32_security_expert.md` — SEC rules for HAL_CRYP_*, HAL_RNG_* | No | security_expert is CC2652R7-only (TI TRNG/CryptoKey APIs); Gemini-validated |
-| 16 | `stm32_power_expert.md` — PWR rules for STM32 Stop/Standby modes | No | power_expert is CC2652R7-only (Power_setConstraint); Gemini-validated |
-| 17 | `09_power_bugs.c` — PWR-001 + PWR-003 (CC2652R7) | No | power_expert has zero eval coverage |
-| 18 | `10_dma_alignment.c` — HW-002 (CC2652R7) | No | unaligned DMA buffer, hardware_expert |
-| 19 | Taxonomy gaps — RTOS-005, MEM-009, HW-009 | **Yes** | Gemini sign-off before any expert edits |
-| 20 | Synthesizer phase (5th LLM call → corrected C patch) | **Yes** | Gemini sign-off on prompt structure + output format |
+| 16 | `stm32_power_expert.md` — PWR rules for STM32 Stop/Standby/HAL_PWR_* | No | power_expert is CC2652R7-only (Power_setConstraint); Gemini-validated |
+| 17 | `stm32_uart_expert.md` — HAL_UART_Init config bugs, DMA UART stream conflicts | No | uart_expert is CC2652R7-only; Gemini-flagged |
+| 18 | `09_power_bugs.c` — PWR-001 + PWR-003 (CC2652R7) | No | power_expert has zero eval coverage |
+| 19 | `10_dma_alignment.c` — HW-002 (CC2652R7) | No | unaligned DMA buffer, hardware_expert |
+| 20 | Taxonomy gaps — RTOS-005, MEM-009, HW-009 | **Yes** | Gemini sign-off before any expert edits |
+| 21 | Synthesizer phase (5th LLM call → corrected C patch) | **Yes** | Gemini sign-off on prompt structure + output format |
 
 ## Branching Strategy
 
@@ -385,6 +386,7 @@ Priority order — pick the next unchecked item each session:
 - [x] **`stm32_rtos_expert.md`** — ISR-001..004, RTOS-001..004 (STM32 ISR context); eval stm32/02 ✓
 - [ ] **`stm32_security_expert.md`** — SEC rules for HAL_CRYP_*, HAL_RNG_* (Gemini-validated fork; security_expert.md is CC2652R7-only)
 - [ ] **`stm32_power_expert.md`** — PWR rules for STM32 Stop/Standby/HAL_PWR_* (Gemini-validated fork; power_expert.md is CC2652R7-only)
+- [ ] **`stm32_uart_expert.md`** — UART config rules for HAL_UART_Init, DMA UART stream conflicts (Gemini-flagged; uart_expert.md is CC2652R7-only)
 
 ### Taxonomy Cleanup
 
