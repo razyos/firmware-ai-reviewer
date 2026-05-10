@@ -281,12 +281,12 @@ Step 4 — session end (mandatory):
   Commit + PR + merge. main must be green at close.
 ```
 
-**Session 12 goal (next):**
+**Session 12 goal (next) — complete STM32 RTOS expert eval coverage:**
 ```
-SESSION GOAL: Add CC2652R7 power eval file — create eval_suite/09_power_bugs.c planting
-PWR-001 (Power_setConstraint called after peripheral starts) and PWR-003 (GPT used as
-Standby wakeup source). No BUG comments or indirect hint comments. CC2652R7 score must
-remain 8/8 and new file must score 1/1 (i.e., eval total 9/9) before closing.
+SESSION GOAL: Add stm32/04_isr_shared_variable.c planting RTOS-001 (HAL callback
+writes a shared counter, task RMW without taskENTER_CRITICAL) and RTOS-003 (binary
+semaphore used to protect a resource instead of a mutex). No BUG comments or indirect
+hint comments. STM32 score must reach 4/4 before closing.
 ```
 
 **Backlog — ordered, one per session:**
@@ -294,11 +294,13 @@ remain 8/8 and new file must score 1/1 (i.e., eval total 9/9) before closing.
 | # | Goal | Requires Gemini? | Notes |
 |---|------|-----------------|-------|
 | ~~11~~ | ~~`stm32/03_hal_locking.c` — STM-005 + STM-006~~ | ~~No~~ | **DONE** — STM32 suite: 3/3 ✓ |
-| 12 | `09_power_bugs.c` — PWR-001 + PWR-003 | No | power_expert has zero eval coverage |
-| 13 | `10_dma_alignment.c` — HW-002 | No | unaligned DMA buffer, hardware_expert |
+| 12 | `stm32/04_isr_shared_variable.c` — RTOS-001 + RTOS-003 | No | shared var HAL callback↔task; semaphore-as-mutex |
+| 13 | `stm32/05_isr_priority_heap.c` — ISR-003 + ISR-004 | No | IRQ at priority 2 calling FreeRTOS; pvPortMalloc in callback |
 | 14 | RTOS-004/STM-006 duplicate — scope fix for stm32_rtos_expert | **Yes** | Gemini sign-off on which expert owns NVIC grouping check |
-| 15 | Taxonomy gaps — RTOS-005, MEM-009, HW-009 | **Yes** | Gemini sign-off before any expert edits |
-| 16 | Synthesizer phase (5th LLM call → corrected C patch) | **Yes** | Gemini sign-off on prompt structure + output format |
+| 15 | `09_power_bugs.c` — PWR-001 + PWR-003 (CC2652R7) | No | power_expert has zero eval coverage |
+| 16 | `10_dma_alignment.c` — HW-002 (CC2652R7) | No | unaligned DMA buffer, hardware_expert |
+| 17 | Taxonomy gaps — RTOS-005, MEM-009, HW-009 | **Yes** | Gemini sign-off before any expert edits |
+| 18 | Synthesizer phase (5th LLM call → corrected C patch) | **Yes** | Gemini sign-off on prompt structure + output format |
 
 ## Branching Strategy
 
@@ -402,6 +404,8 @@ Priority order — pick the next unchecked item each session:
 - [x] `01_dcache_dma_coherency.c` — STM-001, STM-002, STM-003 (STM32H7) ✓
 - [x] `02_hal_callback_isr_misuse.c` — ISR-001, ISR-002 via HAL callbacks (STM32F4) ✓
 - [x] `03_hal_locking.c` — STM-005 (HAL handle shared between tasks), STM-006 (priority grouping) ✓
+- [ ] `04_isr_shared_variable.c` — RTOS-001 (HAL callback writes shared var, task RMW unprotected) + RTOS-003 (semaphore as mutex)
+- [ ] `05_isr_priority_heap.c` — ISR-003 (IRQ at priority 2 calling FreeRTOS API) + ISR-004 (pvPortMalloc in HAL callback)
 
 ### Features
 
