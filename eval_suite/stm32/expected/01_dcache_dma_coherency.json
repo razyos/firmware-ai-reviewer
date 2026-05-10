@@ -1,0 +1,4 @@
+{
+  "description": "STM32H743 (Cortex-M7): CPU reads g_rxBuf after DMA without SCB_InvalidateDCache_by_Addr — D-Cache holds stale pre-DMA data (STM-002). CPU writes g_txBuf then starts HAL_UART_Transmit_DMA without SCB_CleanDCache_by_Addr — DMA reads stale SRAM bytes (STM-001). Neither buffer has __attribute__((aligned(32))) — cache maintenance ops will cover wrong line boundaries (STM-003).",
+  "expected_rules": ["STM-001", "STM-002", "STM-003"]
+}
