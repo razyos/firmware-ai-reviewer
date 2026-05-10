@@ -53,7 +53,7 @@ then README (public state), commit both in the same PR so they are always in syn
 - **Header context injection:** `_build_context()` prepends local `#include "..."` headers; proven by eval file 06
 - **Model profiles:** `APP_ENV=dev` (flash-lite router + flash expert) / `APP_ENV=demo` (flash router + 2.5-pro expert) / `APP_ENV=perf` (flash router + 3.1-pro-preview expert — maximum accuracy; preview, may 503 under load)
 - **Robustness fixes (PRs #21, #22):** path traversal guard, safety block crash fix, MAX_TOKENS truncation warning, block comment include stripping
-- **Gemini consultation protocol:** mandatory for all non-trivial architectural decisions across all projects — defined globally in `~/.claude/CLAUDE.md`; draft with L8 prompt engineering best practices, 4-step audit on response, implement only where both agree
+- **Gemini consultation protocol:** mandatory for architectural AND accuracy/performance decisions — defined globally in `~/.claude/CLAUDE.md`; draft with L8 prompt engineering best practices, 4-step audit on response, implement only where both agree. Project-specific accuracy triggers: rule misses on ≥2 consecutive runs after one tuning attempt; persistent FP not fixed after one near-miss/constraint pass; choosing between two prompt engineering strategies for the same detection problem
 - **Challenge protocol:** mandatory 4-step audit before implementing any LLM challenge response (see section below)
 - **Taxonomy:** SAF-002 canonicalized to HW-007; STM-004 retired (covered by ISR-001/002)
 
