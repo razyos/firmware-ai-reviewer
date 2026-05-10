@@ -1,0 +1,4 @@
+{
+  "description": "STM32F407 (Cortex-M4): huart1 accessed from both vTelemetryTask and vCommandTask without a shared FreeRTOS mutex — HAL __HAL_LOCK is not RTOS-safe (STM-005). HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_2) called after HAL_Init() overrides the required Group 4 setting, breaking FreeRTOS BASEPRI masking (STM-006).",
+  "expected_rules": ["STM-005", "STM-006"]
+}
