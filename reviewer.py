@@ -91,19 +91,19 @@ DOMAIN_TO_EXPERT: dict[str, list[str]] = {
 # On STM32 platform the HAL callback ISR rules live in stm32_expert, not rtos_expert.
 # rtos_expert has CC2652R7-specific ISR naming assumptions that cause FPs on STM32 code.
 STM32_DOMAIN_TO_EXPERT: dict[str, list[str]] = {
-    # stm32_expert covers: D-Cache coherency, HAL callback ISR context (STM-004),
-    # HAL handle locking (STM-005), priority grouping (STM-006), DMA alignment (STM-003).
-    # rtos_expert is NOT included — its ISR context detection is CC2652R7-specific
-    # (IRQHandler suffix, TI driver callbacks) and causes FPs on STM32 HAL callback code.
+    # stm32_expert:      D-Cache coherency, HAL handle locking, priority grouping (STM-001..006)
+    # stm32_rtos_expert: FreeRTOS API misuse (ISR-001..004, RTOS-001..004) with STM32 ISR context
+    #                    recognition (HAL_*_TxCpltCallback, HAL_*_RxCpltCallback, *_IRQHandler)
+    # memory_expert:     C99/GCC memory safety rules (MEM-001..008) — platform-agnostic
     "STM32":   ["stm32_expert.md"],
-    "RTOS":    ["stm32_expert.md"],  # FreeRTOS misuse in HAL callbacks → STM-004
-    "ISR":     ["stm32_expert.md"],  # HAL CpltCallback/IRQHandler ISR rules
-    "DMA":     ["stm32_expert.md"],  # D-Cache/DMA coherency (STM-001/002/003)
+    "RTOS":    ["stm32_rtos_expert.md"],
+    "ISR":     ["stm32_expert.md", "stm32_rtos_expert.md"],
+    "DMA":     ["stm32_expert.md"],
     "MEMORY":  ["memory_expert.md"],
     "POINTER": ["memory_expert.md"],
-    "UART":    ["stm32_expert.md"],
-    "SPI":     ["stm32_expert.md"],
-    "I2C":     ["stm32_expert.md"],
+    "UART":    ["stm32_expert.md", "stm32_rtos_expert.md"],
+    "SPI":     ["stm32_expert.md", "stm32_rtos_expert.md"],
+    "I2C":     ["stm32_expert.md", "stm32_rtos_expert.md"],
     "SECURITY": ["security_expert.md"],
     "SAFETY":  ["power_expert.md"],
     "POWER":   ["power_expert.md"],
@@ -172,19 +172,29 @@ def _generate(
         return None
 
 
-PLATFORM_ROUTER: dict[str, str] = {
-    "cc2652r7": "router.md",
-    "stm32":    "stm32_router.md",
+PLATFORM_ROUTER_SIGNALS: dict[str, str] = {
+    "cc2652r7": "router_signals_cc2652r7.md",
+    "stm32":    "router_signals_stm32.md",
 }
+
+
+def _build_router_prompt(platform: str) -> str:
+    """Assemble router prompt: shared C-parsing base + platform-specific signal list.
+
+    The base contains all hardened C-parsing rules (comment/macro/ifdef handling,
+    prompt injection resistance). The signals file contains only domain vocabulary.
+    This guarantees any future base hardening immediately benefits all platforms.
+    """
+    signals_file = PLATFORM_ROUTER_SIGNALS.get(platform, "router_signals_cc2652r7.md")
+    return _load("router_base.md") + _load(signals_file)
 
 
 def route(client: genai.Client, code: str, platform: str = "cc2652r7") -> list[str]:
     """Phase 1: Classify which embedded domains are present in the file."""
-    router_file = PLATFORM_ROUTER.get(platform, "router.md")
     text = _generate(
         client,
         ROUTER_MODEL,
-        _load(router_file),
+        _build_router_prompt(platform),
         f"<source_code>\n{code}\n</source_code>",
         max_tokens=128,
         response_schema={"type": "array", "items": {"type": "string"}},
@@ -280,7 +290,7 @@ def review_file(client: genai.Client, path: Path, verbose: bool = False, platfor
     # running all experts on a misrouted file produces false positives with no relevant rules.
     if not expert_files and not domains:
         if platform == "stm32":
-            expert_files = ["stm32_expert.md", "memory_expert.md"]
+            expert_files = ["stm32_expert.md", "stm32_rtos_expert.md", "memory_expert.md"]
         else:
             expert_files = ["rtos_expert.md", "memory_expert.md", "hardware_expert.md", "power_expert.md"]
 

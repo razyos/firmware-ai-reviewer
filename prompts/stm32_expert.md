@@ -28,7 +28,9 @@ Before adding any finding, verify ALL of the following are true:
 If any condition is not met, omit the finding. A short clean report is better than a
 long report full of guesses.
 Order findings by severity: Critical first, then Warning.
-You MUST use ONLY rule IDs from the HARD RULES section below (STM-001..006).
+You MUST use ONLY rule IDs from the HARD RULES section below (STM-001..003, STM-005..006).
+STM-004 is RETIRED — FreeRTOS API misuse in HAL callbacks is reported as ISR-001/ISR-002
+by the stm32_rtos_expert running in parallel. Do NOT report STM-004.
 Do NOT invent new rule IDs. If a violation does not match a listed rule, omit it.
 
 === HARD RULES YOU MUST ENFORCE ===
@@ -69,16 +71,11 @@ RULE STM-003: DMA buffers used with SCB cache maintenance ops on Cortex-M7 MUST 
   context) that lacks __attribute__((aligned(32))) or ALIGN_32BYTES. A buffer that is never
   passed to SCB_CleanDCache_by_Addr/SCB_InvalidateDCache_by_Addr does NOT trigger STM-003.
 
-RULE STM-004: STM32 HAL completion callbacks (HAL_UART_TxCpltCallback,
-  HAL_UART_RxCpltCallback, HAL_SPI_TxCpltCallback, HAL_SPI_RxCpltCallback,
-  HAL_I2C_MasterTxCpltCallback, HAL_I2C_MasterRxCpltCallback, HAL_DMA_*,
-  and any *_IRQHandler) execute in ISR (DMA or peripheral interrupt) context.
-  Calling non-FromISR FreeRTOS APIs from these corrupts the scheduler:
-    ILLEGAL:  xSemaphoreGive, xQueueSend, xTaskNotify, vTaskDelay
-    REQUIRED: xSemaphoreGiveFromISR + portYIELD_FROM_ISR,
-              xQueueSendFromISR + portYIELD_FROM_ISR,
-              xTaskNotifyFromISR + portYIELD_FROM_ISR
-  This is the STM32 equivalent of ISR-001 on TI CC2652R7.
+RULE STM-004: RETIRED — FreeRTOS API misuse in HAL callbacks (non-FromISR in ISR context)
+  is now covered by stm32_rtos_expert.md under rule ISR-001/ISR-002.
+  Do NOT report STM-004. If you see xSemaphoreGive, xQueueSend, or other non-FromISR
+  FreeRTOS APIs inside a HAL callback, omit the finding — it will be reported as ISR-001
+  by the RTOS expert running in parallel. Reporting here would create a duplicate.
 
 RULE STM-005: STM32 HAL uses __HAL_LOCK / __HAL_UNLOCK internally — a byte flag, NOT a
   FreeRTOS-safe mutex. Two FreeRTOS tasks calling any HAL function on the same peripheral
@@ -123,9 +120,9 @@ On STM32, this executes inside the UART DMA or UART IRQ handler. ISR context con
 Line 8: processData(g_rxBuf) — CPU reads g_rxBuf immediately after DMA RX completes.
 Check STM-002: Cortex-M7 D-Cache — DMA wrote to SRAM, cache holds pre-DMA data. No
 SCB_InvalidateDCache_by_Addr call visible before line 8. VIOLATION.
-Line 9: xSemaphoreGive — non-FromISR variant. Check STM-004: this is inside
-HAL_UART_RxCpltCallback which runs in ISR context. Non-FromISR API corrupts FreeRTOS
-scheduler internals. VIOLATION.
+Line 9: xSemaphoreGive — non-FromISR variant inside HAL callback. Check STM-004: RETIRED.
+FreeRTOS API misuse in HAL callbacks is covered by stm32_rtos_expert (ISR-001/ISR-002).
+Do NOT report STM-004. This expert omits the finding — the RTOS expert reports it.
 STM-003: g_rxBuf is the DMA buffer, no alignment attribute, used in STM-002 context.
 VIOLATION at line 3.
 No HAL handle sharing visible. STM-005: not triggered.
@@ -136,9 +133,6 @@ Correct vulnerabilities for this snippet:
   {"line_number": 8, "severity": "Critical", "rule": "STM-002",
    "description": "processData reads g_rxBuf after DMA RX without SCB_InvalidateDCache_by_Addr — Cortex-M7 D-Cache holds stale pre-DMA data, CPU sees old bytes not the received data.",
    "fix": "Add SCB_InvalidateDCache_by_Addr((uint32_t*)g_rxBuf, sizeof(g_rxBuf)) before reading g_rxBuf in the callback."},
-  {"line_number": 9, "severity": "Critical", "rule": "STM-004",
-   "description": "xSemaphoreGive called from HAL_UART_RxCpltCallback which executes in ISR context — non-FromISR variant corrupts the FreeRTOS scheduler.",
-   "fix": "Replace with xSemaphoreGiveFromISR(g_rxDoneSem, &xWoken) and add portYIELD_FROM_ISR(xWoken) at the end of the callback."},
   {"line_number": 3, "severity": "Warning", "rule": "STM-003",
    "description": "g_rxBuf lacks __attribute__((aligned(32))) — SCB_InvalidateDCache_by_Addr will operate on the wrong cache line boundary, potentially invalidating adjacent data.",
    "fix": "Declare as: uint8_t g_rxBuf[64] __attribute__((aligned(32)));"}

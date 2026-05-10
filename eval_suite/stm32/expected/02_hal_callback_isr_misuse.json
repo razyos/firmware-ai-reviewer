@@ -1,0 +1,4 @@
+{
+  "description": "STM32F407: HAL_UART_TxCpltCallback and HAL_UART_RxCpltCallback both execute in ISR (DMA interrupt) context. TxCpltCallback calls xSemaphoreGive (non-FromISR, ISR-001) with no portYIELD_FROM_ISR (ISR-002). RxCpltCallback calls xQueueSend (non-FromISR, ISR-001) with no portYIELD_FROM_ISR (ISR-002). STM32F4 has no D-Cache so STM-001/002/003 do not apply.",
+  "expected_rules": ["ISR-001", "ISR-002"]
+}
