@@ -50,7 +50,7 @@ then README (public state), commit both in the same PR so they are always in syn
 - **Expert coverage:** all CC2652R7 domains have experts — zero silent gaps
 - **Prompt engineering (L8):** all gaps addressed — few-shot + near-miss examples in all experts, structured CoT, negative constraints, verification instructions
 - **Header context injection:** `_build_context()` prepends local `#include "..."` headers; proven by eval file 06
-- **Model profiles:** `APP_ENV=dev` (flash-lite router + flash expert) / `APP_ENV=demo` (flash router + 2.5-pro expert) / `APP_ENV=perf` (2.5-pro router + 2.5-pro expert — maximum accuracy)
+- **Model profiles:** `APP_ENV=dev` (flash-lite router + flash expert) / `APP_ENV=demo` (flash router + 2.5-pro expert) / `APP_ENV=perf` (flash router + 3.1-pro-preview expert — maximum accuracy; preview, may 503 under load)
 - **Robustness fixes (PRs #21, #22):** path traversal guard, safety block crash fix, MAX_TOKENS truncation warning, block comment include stripping
 - **Gemini consultation protocol:** mandatory for all non-trivial architectural decisions across all projects — defined globally in `~/.claude/CLAUDE.md`; draft with L8 prompt engineering best practices, 4-step audit on response, implement only where both agree
 - **Challenge protocol:** mandatory 4-step audit before implementing any LLM challenge response (see section below)

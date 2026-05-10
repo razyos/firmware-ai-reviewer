@@ -36,18 +36,20 @@ SCRIPT_DIR  = Path(__file__).parent
 PROMPTS_DIR = SCRIPT_DIR / "prompts"
 EVAL_DIR    = SCRIPT_DIR / "eval_suite"
 
-# APP_ENV=demo uses stronger models for final demos/interviews.
-# APP_ENV=dev (default) uses cheaper models for prompt iteration.
+# APP_ENV selects the model tier. Override any model with ROUTER_MODEL / EXPERT_MODEL in .env.
+#   dev  (default) — flash-lite router + flash expert; cheapest, fastest iteration
+#   demo           — flash router + 2.5-pro expert; stable, interview-quality
+#   perf           — flash router + 3.1-pro-preview expert; maximum accuracy
 _APP_ENV = os.getenv("APP_ENV", "dev")
 
 ROUTER_MODEL = os.getenv("ROUTER_MODEL",
-    "gemini-2.5-pro"       if _APP_ENV == "perf" else
-    "gemini-2.5-flash"     if _APP_ENV == "demo" else
-    "gemini-2.5-flash-lite"  # dev (default)
+    "gemini-2.5-flash"          if _APP_ENV in ("perf", "demo") else
+    "gemini-2.5-flash-lite"     # dev (default)
 )
 EXPERT_MODEL = os.getenv("EXPERT_MODEL",
-    "gemini-2.5-pro"       if _APP_ENV in ("perf", "demo") else
-    "gemini-2.5-flash"       # dev (default)
+    "gemini-3.1-pro-preview"    if _APP_ENV == "perf" else
+    "gemini-2.5-pro"            if _APP_ENV == "demo" else
+    "gemini-2.5-flash"          # dev (default)
 )
 
 # JSON schema enforced at the API level for expert calls.
