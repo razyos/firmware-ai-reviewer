@@ -80,15 +80,26 @@ RULE STM-004: RETIRED — FreeRTOS API misuse in HAL callbacks (non-FromISR in I
   by the RTOS expert running in parallel. Reporting here would create a duplicate.
 
 RULE STM-005: STM32 HAL uses __HAL_LOCK / __HAL_UNLOCK internally — a byte flag, NOT a
-  FreeRTOS-safe mutex. Two FreeRTOS tasks calling any HAL function on the same peripheral
-  handle concurrently can both read the lock as HAL_UNLOCKED and proceed simultaneously,
+  FreeRTOS-safe mutex. Two execution contexts accessing the same peripheral handle
+  concurrently can both read the lock as HAL_UNLOCKED and proceed simultaneously,
   corrupting the handle state.
-  Required protection: wrap ALL HAL calls on a shared handle in a FreeRTOS mutex:
-    xSemaphoreTake(huartMutex, portMAX_DELAY);
-    HAL_UART_Transmit(&huart1, buf, len, timeout);
-    xSemaphoreGive(huartMutex);
-  EVIDENCE REQUIRED: the same handle (e.g., huart1) must be visibly used in two different
-  task or thread functions, or in a task and a non-ISR callback, without a common mutex.
+  Two sharing patterns — each requires a different fix:
+  A) Task + Task (or task + non-ISR callback): both callers are in thread context.
+     Required fix: wrap ALL HAL calls on the shared handle in a FreeRTOS mutex:
+       xSemaphoreTake(huartMutex, portMAX_DELAY);
+       HAL_UART_Transmit(&huart1, buf, len, timeout);
+       xSemaphoreGive(huartMutex);
+  B) Task + ISR (IRQHandler or HAL_*_TxCpltCallback / RxCpltCallback / ErrorCallback):
+     A FreeRTOS mutex CANNOT be used from ISR context — taking it from an ISR crashes.
+     Required fix: mask the IRQ around the task-side HAL call instead:
+       taskENTER_CRITICAL();          // or: HAL_NVIC_DisableIRQ(peripheral_IRQn)
+       HAL_UART_Transmit(&huart1, buf, len, timeout);
+       taskEXIT_CRITICAL();           // or: HAL_NVIC_EnableIRQ(peripheral_IRQn)
+  EVIDENCE REQUIRED: the same handle (e.g., huart1) must be visibly passed to a HAL API
+  call in two different execution contexts — both call sites must be in the code — without
+  the appropriate protection for the sharing pattern (mutex for task+task; critical section
+  for task+ISR). Receiving a handle as a callback parameter (e.g., UART_HandleTypeDef *huart)
+  does NOT count as access unless a HAL function is explicitly called on it in that context.
 
 RULE STM-006: FreeRTOS on STM32 requires ALL NVIC interrupt priorities to use preemption
   bits only (NVIC_PriorityGroup_4: 4 preemption bits, 0 sub-priority bits).

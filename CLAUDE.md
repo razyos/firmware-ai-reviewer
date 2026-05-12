@@ -28,7 +28,7 @@ then README (public state), commit both in the same PR so they are always in syn
 
 ---
 
-## Current State (as of pre-session 12)
+## Current State (as of pre-session 13)
 
 - **Eval suite:** CC2652R7 8/8, STM32 3/3 — deterministic at temperature=0.0
 - **Eval validity:** all BUG comments and indirect hint comments removed — tests require real static analysis, not comment-reading (PRs #53, #54)
@@ -46,11 +46,14 @@ then README (public state), commit both in the same PR so they are always in syn
 - **Expert fork threshold (Gemini-validated, PRs #62–#63):** fork when (A) ISR context recognition differs, (B) platform-specific APIs create silent gaps, or (C) generic expert produces confirmed FPs. `memory_expert.md` shared. `security_expert.md`, `power_expert.md`, `uart_expert.md` are CC2652R7-only; STM32 equivalents are backlog items
 - **STM32 experts:** `stm32_expert.md` (STM-001..003, STM-005..006); `stm32_rtos_expert.md` (ISR-001..004, RTOS-001..004 with STM32 HAL callback ISR recognition)
 - **STM-004 retired:** covered by ISR-001/ISR-002 in stm32_rtos_expert
-- **Known FP pattern:** stm32/03_hal_locking.c → RTOS-003 (spurious) + RTOS-004 (duplicate of STM-006); test passes 3/3; RTOS-004 scope fix is session 14 (Gemini needed)
+- **ISR-003 exclusivity (session 12):** ISR-003 now carries an explicit clause — when ISR-003 fires, do NOT also report ISR-001/ISR-002 for the same line; ISR-003 is the more specific and severe violation
+- **STM-005 task+ISR expansion (session 12):** STM-005 now covers task+ISR handle sharing (in addition to task+task); prescribes `taskENTER_CRITICAL` / NVIC masking for task+ISR (not a mutex, which crashes in ISR context); evidence clause tightened — callback parameter receipt alone does not count as handle access
+- **Known FP pattern:** stm32/03_hal_locking.c → RTOS-003 (spurious) + RTOS-004 (duplicate of STM-006); test passes 3/3; RTOS-003 fix is session 17; RTOS-004 scope fix is session 20 (Gemini needed)
+- **Known gap (session 12 Attack 2):** blocking HAL APIs in ISR context (`HAL_Delay`, `HAL_I2C_Master_Transmit` with timeout) deadlock the system but neither expert fires — new rule ISR-005 backlogged for session 12b
 - **Prompt engineering (L8):** all gaps addressed — few-shot + near-miss examples, structured CoT, negative constraints, verification instructions in all experts
 - **Header context injection:** `_build_context()` prepends local `#include "..."` headers; proven by eval file 06
 - **Robustness fixes (PRs #21, #22):** path traversal guard, safety block crash fix, MAX_TOKENS truncation warning, block comment include stripping
-- **Gemini consultation protocol:** mandatory for architectural AND accuracy/performance decisions — defined globally in `~/.claude/CLAUDE.md`; expanded pre-session 12 to cover persistent FP/miss after one fix attempt, choosing between prompt strategies, accuracy-motivated model changes
+- **Gemini consultation protocol:** mandatory for architectural AND accuracy/performance decisions — defined globally in `~/.claude/CLAUDE.md`; consent required before any API call
 - **Challenge protocol:** mandatory 4-step audit before implementing any LLM challenge response (see section below)
 - **Taxonomy:** SAF-002 canonicalized to HW-007; STM-004 retired (covered by ISR-001/002)
 - **Repo hygiene (pre-session 12):** stale router_attack_prompt*.md and challenge_prompt.md deleted (PRs #59–#61); all remote branches pruned
@@ -243,10 +246,11 @@ A full eval run costs ~$0.007 and takes ~2 min. Use targeted runs during iterati
 | STM-002  | Cortex-M7: SCB_InvalidateDCache_by_Addr missing before CPU reads DMA RX buffer |
 | STM-003  | DMA buffer not __attribute__((aligned(32))) — cache maintenance covers wrong cache lines |
 | STM-004  | RETIRED — covered by ISR-001/ISR-002 in stm32_rtos_expert |
-| STM-005  | STM32 HAL __HAL_LOCK is not FreeRTOS-safe; shared handles between tasks need a mutex |
+| STM-005  | STM32 HAL __HAL_LOCK is not FreeRTOS-safe; shared handles between tasks need a mutex; task+ISR sharing needs taskENTER_CRITICAL (not mutex) |
 | STM-006  | NVIC priority grouping not NVIC_PRIORITYGROUP_4 before vTaskStartScheduler |
 
 **Known taxonomy issues (to resolve in future sessions):**
+- `ISR-005` (blocking HAL API in ISR — `HAL_Delay`/polling `HAL_*_Transmit` deadlocks system) — Gemini Attack 1 confirmed gap; backlogged session 12b
 - `RTOS-005` (xQueueSend return unchecked), `RTOS-006` (no stack overflow detection), `MEM-009` (pvPortMalloc NULL dereference), `MEM-010` (use-after-free), `HW-009` (SPI CS not deasserted) — identified gaps, need Gemini sign-off before implementing
 
 ## Next Session Start Instructions
@@ -280,19 +284,15 @@ Step 4 — session end (mandatory):
   Commit + PR + merge. main must be green at close.
 ```
 
-**Session 12 goal (next) — Gemini Attack 1: STM32 expert scope boundaries:**
+**Session 13 goal (next) — Gemini Attack 2: eval validity / FP blindness:**
 ```
-SESSION GOAL: Run an adversarial Gemini consultation on the stm32_expert /
-stm32_rtos_expert split — find overlaps, gaps, and bug classes that fall between
-the two experts. Apply the attack session protocol (present full system state,
-no confidence-based constraints, one attack surface). Audit findings, implement
-confirmed fixes, run eval. Score must not drop.
+SESSION GOAL: Run an adversarial Gemini consultation on the eval suite — attack
+the question "does a passing score guarantee zero false positives?" Find the
+minimum eval conditions needed to catch systematic FPs, and identify any current
+eval file that could pass while hiding an FP the user would care about.
 
-Key attack questions:
-1. What overlaps exist beyond the known RTOS-003 FP and RTOS-004/STM-006 duplicate?
-2. What bug class most likely falls between both experts (neither catches it)?
-3. Is the split boundary (hardware bugs vs FreeRTOS API misuse) stable as eval
-   coverage grows, or does it create ambiguous cases at the boundary?
+Apply the attack session protocol (present full system state, no confidence filters,
+one attack surface). Audit findings, implement confirmed fixes, run eval. Score must not drop.
 ```
 
 **Backlog — ordered, one per session:**
@@ -300,7 +300,8 @@ Key attack questions:
 | # | Goal | Requires Gemini? | Notes |
 |---|------|-----------------|-------|
 | ~~11~~ | ~~`stm32/03_hal_locking.c` — STM-005 + STM-006~~ | ~~No~~ | **DONE** — STM32 suite: 3/3 ✓ |
-| 12 | **Gemini Attack 1** — STM32 expert scope boundaries (stm32_expert vs stm32_rtos_expert overlap + gaps) | **Yes (attack)** | Present full state, no confidence filters; one attack surface |
+| ~~12~~ | ~~**Gemini Attack 1** — STM32 expert scope boundaries~~ | ~~Yes (attack)~~ | **DONE** — ISR-003 exclusivity + STM-005 task+ISR expansion; ISR-005 backlogged ✓ |
+| 12b | **ISR-005** — blocking HAL API in ISR (`HAL_Delay`/polling `HAL_*_Transmit` inside callback deadlocks) | No | Gemini Attack 1 confirmed gap; add rule to stm32_rtos_expert + eval file stm32/04_isr_hal_delay.c |
 | 13 | **Gemini Attack 2** — eval validity / FP blindness (passing score ≠ zero FPs) | **Yes (attack)** | Min eval condition to catch systematic FPs |
 | 14 | **Gemini Attack 3** — silent gap routing (SECURITY/POWER/SAFETY → [] produces zero findings) | **Yes (attack)** | Silent zero vs CC2652R7 expert FPs |
 | 15 | **Gemini Attack 4** — backlog sequencing risk (what is the highest-risk ordering mistake?) | **Yes (attack)** | May reorder sessions 16+ |

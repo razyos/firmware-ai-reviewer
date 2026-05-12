@@ -50,6 +50,9 @@ RULE ISR-003: ISRs at numeric priority BELOW configLIBRARY_MAX_SYSCALL_INTERRUPT
   CANNOT call ANY FreeRTOS API — including FromISR variants.
   On STM32 with NVIC_PRIORITYGROUP_4: priorities 0–4 are above the masking threshold
   and must never touch FreeRTOS internals.
+  EXCLUSIVITY: If ISR-003 applies to a call, report ONLY ISR-003 for that line.
+  Do NOT also report ISR-001 or ISR-002 for the same call — ISR-003 is the more
+  specific and severe violation and subsumes the others.
 
 RULE ISR-004: ISRs must not allocate heap (pvPortMalloc) or call printf.
   STRICT SCOPE: ISR-004 applies ONLY inside functions whose name ends in IRQHandler
