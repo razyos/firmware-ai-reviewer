@@ -28,7 +28,7 @@ then README (public state), commit both in the same PR so they are always in syn
 
 ---
 
-## Current State (as of pre-session 13)
+## Current State (as of pre-session 14)
 
 - **Eval suite:** CC2652R7 8/8, STM32 3/3 — deterministic at temperature=0.0
 - **Eval validity:** all BUG comments and indirect hint comments removed — tests require real static analysis, not comment-reading (PRs #53, #54)
@@ -47,7 +47,8 @@ then README (public state), commit both in the same PR so they are always in syn
 - **STM32 experts:** `stm32_expert.md` (STM-001..003, STM-005..006); `stm32_rtos_expert.md` (ISR-001..004, RTOS-001..004 with STM32 HAL callback ISR recognition)
 - **STM-004 retired:** covered by ISR-001/ISR-002 in stm32_rtos_expert
 - **ISR-003 exclusivity (session 12):** ISR-003 now carries an explicit clause — when ISR-003 fires, do NOT also report ISR-001/ISR-002 for the same line; ISR-003 is the more specific and severe violation
-- **STM-005 task+ISR expansion (session 12):** STM-005 now covers task+ISR handle sharing (in addition to task+task); prescribes `taskENTER_CRITICAL` / NVIC masking for task+ISR (not a mutex, which crashes in ISR context); evidence clause tightened — callback parameter receipt alone does not count as handle access
+- **STM-005 task+ISR expansion (session 12, PR #67):** STM-005 now covers task+ISR handle sharing (in addition to task+task); prescribes `taskENTER_CRITICAL` / NVIC masking for task+ISR (not a mutex, which crashes in ISR context); evidence clause tightened — callback parameter receipt alone does not count as handle access
+- **STM-005 callback FP fix (session 13, PR #68):** session 12 expansion introduced a new FP — completion callbacks receiving a handle as a parameter were counted as a second access context. Fixed via HOW TO REASON instruction + near-miss scratchpad showing the correct non-firing reasoning for passive-parameter callbacks
 - **Known FP pattern:** stm32/03_hal_locking.c → RTOS-003 (spurious) + RTOS-004 (duplicate of STM-006); test passes 3/3; RTOS-003 fix is session 17; RTOS-004 scope fix is session 20 (Gemini needed)
 - **Known gap (session 12 Attack 2):** blocking HAL APIs in ISR context (`HAL_Delay`, `HAL_I2C_Master_Transmit` with timeout) deadlock the system but neither expert fires — new rule ISR-005 backlogged for session 12b
 - **Prompt engineering (L8):** all gaps addressed — few-shot + near-miss examples, structured CoT, negative constraints, verification instructions in all experts
@@ -284,15 +285,126 @@ Step 4 — session end (mandatory):
   Commit + PR + merge. main must be green at close.
 ```
 
-**Session 13 goal (next) — Gemini Attack 2: eval validity / FP blindness:**
+**Session 14 goal (next) — Gemini Attack 2: eval validity / FP blindness:**
 ```
-SESSION GOAL: Run an adversarial Gemini consultation on the eval suite — attack
-the question "does a passing score guarantee zero false positives?" Find the
-minimum eval conditions needed to catch systematic FPs, and identify any current
-eval file that could pass while hiding an FP the user would care about.
+SESSION GOAL: Run the prepared adversarial Gemini consultation on the eval suite —
+attack "does a passing score guarantee zero false positives?" Audit findings,
+implement confirmed fixes, run eval. Score must not drop.
 
-Apply the attack session protocol (present full system state, no confidence filters,
-one attack surface). Audit findings, implement confirmed fixes, run eval. Score must not drop.
+The attack prompt is ready — paste it to Gemini (with user consent), then
+run the 4-step audit on the response before implementing anything.
+```
+
+**Attack prompt for session 14 (paste to Gemini, wait for user go-ahead first):**
+
+```
+You are an adversarial reviewer. Your role is to find failure modes — do not
+validate, do not confirm, do not agree unless you genuinely cannot find a flaw.
+Attack the weakest point you see regardless of whether it appears settled.
+
+=============================================================================
+CONTEXT — firmware-ai-reviewer eval validity / FP blindness
+=============================================================================
+
+PROJECT: A prompt-chained LLM static analysis pipeline for embedded C firmware.
+Input: a .c file. Output: JSON array of vulnerability findings with rule IDs.
+
+PIPELINE ARCHITECTURE:
+  Phase 1 (Router): gemini-2.5-flash classifies the file into domain labels
+  Phase 2 (Inject): orchestrator maps domain labels → expert prompt files
+  Phase 3 (Experts): each expert runs in parallel, returns JSON findings
+  Phase 4 (Merge): deduplicate by (line_number, rule), sort by line
+
+EVAL HARNESS (how passing/failing is determined):
+  Each eval file has a ground-truth JSON: { "expected_rules": ["ISR-001", "ISR-002"] }
+  A file PASSES if every expected rule appears in the findings.
+  A file FAILS if any expected rule is missing.
+  FP warnings are printed when findings contain rule IDs NOT in expected_rules,
+  but FP warnings do NOT cause a FAIL — the file still passes.
+  A score of N/N means all expected rules were found. It says nothing about
+  how many unexpected (false positive) findings were also returned.
+
+CURRENT EVAL SUITE — CC2652R7 (8 files):
+  01: ISR-001, ISR-002
+  02: MEM-001, MEM-002, MEM-003
+  03: HW-001, HW-003
+  04: MEM-004, RTOS-003
+  05: ISR-001, ISR-002
+  06: MEM-005, HW-002
+  07: SEC-001, SEC-003
+  08: UART-001, UART-004
+
+CURRENT EVAL SUITE — STM32 (3 files):
+  01: STM-001, STM-002, STM-003
+  02: ISR-001, ISR-002
+  03: STM-005, STM-006
+
+KNOWN ACTIVE FP WARNINGS (passing files with extra findings):
+  CC2652R7/03_dma_stack_buffer.c → RTOS-001 fires spuriously (no shared variable present)
+  STM32/03_hal_locking.c → RTOS-004 fires (duplicate of STM-006, different rule ID survives dedup)
+
+RULE TAXONOMY (full list — 40+ rules across 8 experts):
+  ISR-001..004, RTOS-001..004, MEM-001..008, HW-001..008,
+  PWR-001..005, SAF-001, SEC-001..005, UART-001..004,
+  STM-001..003, STM-005..006
+
+EXPERT FILES IN USE:
+  rtos_expert.md       — CC2652R7: ISR-001..004, RTOS-001..004
+  memory_expert.md     — platform-agnostic: MEM-001..008
+  hardware_expert.md   — CC2652R7: HW-001..008
+  power_expert.md      — CC2652R7: PWR-001..005, SAF-001, HW-007
+  security_expert.md   — CC2652R7: SEC-001..005
+  uart_expert.md       — CC2652R7: UART-001..004
+  stm32_expert.md      — STM32: STM-001..003, STM-005..006
+  stm32_rtos_expert.md — STM32: ISR-001..004, RTOS-001..004
+
+KNOWN GAPS (experts exist but have zero eval coverage):
+  power_expert.md — PWR-001..005, SAF-001, HW-007: no eval files
+  security_expert.md — SEC-002, SEC-004, SEC-005: no eval files (SEC-001, SEC-003 covered)
+  hardware_expert.md — HW-004..006, HW-008: no eval files
+
+=============================================================================
+ATTACK QUESTIONS
+=============================================================================
+
+Attack these three surfaces. For each, find the most dangerous failure mode.
+
+ATTACK 1: Passing score ≠ zero false positives.
+  The harness marks a file PASS when all expected rules fire, regardless of extra
+  findings. Given the current eval suite and known FP warnings, what is the most
+  dangerous class of systematic false positive that could be present today —
+  firing consistently across multiple files — that the harness would never catch
+  because it never appears as a FAIL? Be specific: name the rule, the code pattern
+  that triggers it, and why the current expected_rules design cannot catch it.
+
+ATTACK 2: Coverage blind spots.
+  Which expert or rule subset has the weakest eval coverage today, and what is the
+  concrete failure mode? Specifically: could a prompt change to that expert silently
+  regress detection accuracy — dropping a real bug class to zero detection — while
+  the eval suite continues to pass 8/8 and 3/3? Name the expert, the undetected
+  regression, and the minimum eval addition that would catch it.
+
+ATTACK 3: Expected rules as a completeness guarantee.
+  The expected_rules list for each file contains only the rules that were
+  deliberately planted. Is there a structural reason why the current eval design
+  cannot guarantee the pipeline has no systematic detection gaps — i.e., a class
+  of real firmware bug that no eval file would ever expose, not because the file
+  is missing, but because of how the eval files are constructed or how expected_rules
+  are chosen? Name the structural flaw and what it would take to close it.
+
+=============================================================================
+EXPECTED RESPONSE FORMAT
+=============================================================================
+
+For each attack:
+
+ATTACK [N]: [short title]
+  Verdict: fires / does not fire / unclear
+  Failure path: [concrete sequence of events or code pattern]
+  Severity: blocks correctness / degrades quality / acceptable risk
+  Recommended fix: [specific action, OR "no fix needed because [reason]"]
+
+Do not pad. Only report genuine failure modes. If you cannot find one, say so with reasoning.
 ```
 
 **Backlog — ordered, one per session:**
@@ -301,8 +413,9 @@ one attack surface). Audit findings, implement confirmed fixes, run eval. Score 
 |---|------|-----------------|-------|
 | ~~11~~ | ~~`stm32/03_hal_locking.c` — STM-005 + STM-006~~ | ~~No~~ | **DONE** — STM32 suite: 3/3 ✓ |
 | ~~12~~ | ~~**Gemini Attack 1** — STM32 expert scope boundaries~~ | ~~Yes (attack)~~ | **DONE** — ISR-003 exclusivity + STM-005 task+ISR expansion; ISR-005 backlogged ✓ |
+| ~~13~~ | ~~STM-005 callback FP fix~~ | ~~No~~ | **DONE** — passive callback parameter receipt no longer counts as HAL access; PR #68 ✓ |
 | 12b | **ISR-005** — blocking HAL API in ISR (`HAL_Delay`/polling `HAL_*_Transmit` inside callback deadlocks) | No | Gemini Attack 1 confirmed gap; add rule to stm32_rtos_expert + eval file stm32/04_isr_hal_delay.c |
-| 13 | **Gemini Attack 2** — eval validity / FP blindness (passing score ≠ zero FPs) | **Yes (attack)** | Min eval condition to catch systematic FPs |
+| 14 | **Gemini Attack 2** — eval validity / FP blindness (passing score ≠ zero FPs) | **Yes (attack)** | Attack prompt ready in CLAUDE.md; present to user first, wait for consent before sending |
 | 14 | **Gemini Attack 3** — silent gap routing (SECURITY/POWER/SAFETY → [] produces zero findings) | **Yes (attack)** | Silent zero vs CC2652R7 expert FPs |
 | 15 | **Gemini Attack 4** — backlog sequencing risk (what is the highest-risk ordering mistake?) | **Yes (attack)** | May reorder sessions 16+ |
 | 16 | `stm32/04_isr_shared_variable.c` — RTOS-001 only | No | HAL callback writes shared var, task RMW unprotected |
