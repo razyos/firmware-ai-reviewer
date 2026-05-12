@@ -157,7 +157,7 @@ File 06 validates **header context injection**: the packed struct definition liv
 |------|-----------|-------|
 | `stm32/01_dcache_dma_coherency.c` | Cortex-M7 D-Cache: missing SCB_Clean before DMA TX, missing SCB_Invalidate before CPU reads RX buffer, buffers not 32-byte aligned | STM-001, STM-002, STM-003 |
 | `stm32/02_hal_callback_isr_misuse.c` | HAL TX/RX completion callbacks call non-FromISR FreeRTOS APIs, missing portYIELD_FROM_ISR | ISR-001, ISR-002 |
-| `stm32/03_hal_locking.c` | Same UART handle shared between two FreeRTOS tasks without a mutex; NVIC priority grouping overridden to Group 2 after HAL_Init | STM-005, STM-006 |
+| `stm32/03_hal_locking.c` | Same UART handle shared between two FreeRTOS tasks without a mutex (task+task) or without `taskENTER_CRITICAL` (task+ISR); NVIC priority grouping overridden to Group 2 after HAL_Init | STM-005, STM-006 |
 
 ```bash
 python reviewer.py --eval
