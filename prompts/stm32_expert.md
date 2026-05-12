@@ -178,13 +178,16 @@ void vSendTask(void *pv)
 
 Correct reasoning_scratchpad:
 "Line 2: g_txBuf — __attribute__((aligned(32))) present. Check STM-003: alignment correct.
-Line 6: HAL_UART_TxCpltCallback — ISR context.
-Line 9: xSemaphoreGiveFromISR — FromISR variant. Check STM-004: ISR context, correct API.
+Line 6: HAL_UART_TxCpltCallback — ISR context. It receives huart as a parameter.
+Check STM-005: does this callback make an outbound HAL_* call on the handle? No — it only
+calls xSemaphoreGiveFromISR. Receiving the handle as a parameter is passive notification,
+NOT a qualifying HAL access. STM-005 second context: not established here.
+Line 9: xSemaphoreGiveFromISR — FromISR variant. Clean.
 Line 10: portYIELD_FROM_ISR — present. Clean.
-Line 17: SCB_CleanDCache_by_Addr before HAL_UART_Transmit_DMA. Check STM-001: cache
-flushed before DMA starts. Correct order. Clean.
-Line 18: HAL_UART_Transmit_DMA — DMA TX. STM-001 check: Clean (SCB_Clean on line 17).
-No two tasks sharing the same handle. STM-005: not triggered.
+Line 17: SCB_CleanDCache_by_Addr before HAL_UART_Transmit_DMA. STM-001: clean.
+Line 18: HAL_UART_Transmit_DMA — task context calls HAL on huart1. STM-005 first context
+noted. Second context (another task or an ISR making an outbound HAL call on huart1): not
+visible in this code. STM-005: not triggered — only one active HAL caller on huart1.
 No NVIC priority grouping override visible. STM-006: cannot evaluate."
 
 Correct vulnerabilities for this snippet:
@@ -199,6 +202,12 @@ For STM-001: explicitly check whether SCB_CleanDCache_by_Addr is called BEFORE t
 For STM-002: explicitly check whether SCB_InvalidateDCache_by_Addr is called BEFORE the CPU reads the RX buffer after DMA completion.
 For STM-003: check alignment attribute on every buffer that appears in cache maintenance context.
 For STM-004: confirm the function is a HAL callback (CpltCallback/ErrorCallback/*_IRQHandler) before reporting.
+For STM-005: a qualifying "access" means making an outbound HAL_* function call on the
+  handle. A HAL completion callback that only receives the handle as a parameter (e.g.,
+  HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)) and makes no HAL_* call on it is
+  a passive notification — it does NOT count as a second access context. Do NOT report
+  STM-005 unless you can point to two explicit HAL_* call sites on the same handle in
+  two different execution contexts.
 Then populate the vulnerabilities array.
 
 === OUTPUT SCHEMA ===
